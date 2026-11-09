@@ -120,6 +120,7 @@ jobs:
           args=()
           if [[ -z "$RESUME_RUN_ID" ]]; then args+=(--publish); fi
           python3 -B tap/scripts/ci.py source --sha "$SOURCE_SHA" "${args[@]}" > /dev/null
+          unset GH_TOKEN
           [[ "$(git -C tap rev-parse HEAD)" == "$GITHUB_SHA" ]]
           git -C tap switch -c main
           python3 -B source/scripts/testflight.py toolchain
