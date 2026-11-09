@@ -1,101 +1,92 @@
 # PositionBar Homebrew tap
 
-Homebrew Casks for [PositionBar](https://positionbar.com/).
+Public release assets and casks for [PositionBar](https://positionbar.com/).
+No installable cask is implied until a real paired release has passed the checks below.
 
-## Publication model
+## Unified Actions release
 
-This repository is the public Release and cask target for PositionBar's local
-release pipeline. Each accepted TestFlight build is paired with a separately
-built Developer ID ZIP from the same source SHA, marketing version, build, and
-Build ID. The ZIP is notarized, stapled, checked with Gatekeeper, and published
-under `PositionBar/homebrew-tap`, not the PositionBar source repository.
+The `Paired PositionBar release` workflow checks out a fixed commit from private
+`sorcererxw/positionbar`. Both channels share that source SHA, marketing version,
+build and global Build ID. TestFlight uses the App Store target without Sparkle;
+Homebrew uses a separately signed, notarized Developer ID app with Sparkle.
+The cask and signed appcast reference the exact same notarized ZIP bytes.
 
-The cask app does not embed Sparkle, an App Store profile, or in-app update
-configuration. A cask is eligible only after the matching TestFlight upload has
-the status `upload_accepted_processing_pending`.
+Only manual `workflow_dispatch` is enabled. `mode=verify` is the default and runs
+offline regressions plus both unsigned archives on the standard GitHub-hosted
+`xcode-27` arm64 runner. It does not allocate a global number, sign, notarize,
+upload TestFlight, create a Release or change the cask. The requested source
+commit must already include the paired-release implementation.
 
-The source pipeline writes a `homebrew.json` receipt containing the accepted
-TestFlight facts, exact artifact SHA-256 and length, notarization results, and
-public GitHub Release URL. Do not hand-edit or substitute that receipt: the tap
-uses it to reject mismatched source revisions, versions, builds, Build IDs,
-artifact bytes, architectures, entitlements, or download URLs.
+`mode=release` is an actual publication. It runs only from tap main after
+verification, with a full `source_sha` matching the observed source main for a
+fresh release. It uploads TestFlight once, saves its accepted checkpoint, then
+builds/signs/notarizes Homebrew, publicly verifies ZIP/feed/notes and updates tap
+main. Upload acceptance does not mean Apple processing or external beta review
+is complete. Do not run a local publisher and Actions publisher concurrently.
 
-There is no `prepared.json` stage and no source release-catalog gate. This tap
-does not build, sign, notarize, upload TestFlight, or rebuild the App.
+## Configuration contract
 
-## Check
+Repository Secrets, already prepared separately:
 
-Review the public artifact and rendered cask facts without changing the tap:
+- `GH_PAT`: read access to the private source repository.
+- `APP_STORE_CERTIFICATES_P12_BASE64`, `APP_STORE_CERTIFICATES_PASSWORD`.
+- `APP_STORE_PROFILE_BASE64`, `APP_STORE_API_PRIVATE_KEY`.
+- `DEVELOPER_ID_CERTIFICATE_P12_BASE64`, `DEVELOPER_ID_CERTIFICATE_PASSWORD`.
+- `SPARKLE_PRIVATE_KEY`: the existing key matching the reviewed source catalog public key.
 
-```sh
-python3 -B scripts/cask.py check \
-  --receipt /absolute/path/to/homebrew/homebrew.json \
-  --result /absolute/path/to/cask-result.json
-```
+Repository Variables:
 
-`check` downloads the exact public Release asset, verifies SHA-256 and length,
-then checks the extracted App's version, build, source revision, Build ID,
-architectures, Developer ID signature, notarization, Gatekeeper result, and
-entitlements. It reports a candidate only; it does not write, commit, or push.
+- `APP_STORE_API_KEY_ID`.
+- `APP_STORE_API_ISSUER_ID`.
 
-## Publish
+Tap writes use the workflow's short-lived `GITHUB_TOKEN`, not the source-read
+PAT. No extra persistent credential is generated. Temporary signing keychains
+are removed and search lists restored. Secrets are scoped to signing steps and
+stripped from compiler children. No credential, private source, build log,
+TestFlight pkg or dSYM is included in recovery artifacts. Configuration names
+existing in Settings do not prove signing, ASC, notarization or PAT functionality.
 
-`publish` is a dry-run unless `--execute` is present:
+The app embeds this stable signed feed URL:
+`https://github.com/PositionBar/homebrew-tap/releases/latest/download/appcast.xml`.
+New Release assets are publicly read back before that release becomes latest.
+An older retry cannot replace a newer latest build. The cask declares
+`auto_updates true` and retains signed Sparkle update checks.
 
-```sh
-python3 -B scripts/cask.py publish \
-  --receipt /absolute/path/to/homebrew/homebrew.json
-```
+## Recover without a second TestFlight upload
 
-After reviewing the dry-run:
+Dispatch `mode=release` again with the original `source_sha` and `resume_run_id`.
+The workflow verifies the original run belongs to tap main and this workflow,
+then restores `homebrew-state` or `testflight-state`. Both are retained for 30
+days. A source main advance does not change the restored release identity.
 
-```sh
-python3 -B scripts/cask.py publish \
-  --receipt /absolute/path/to/homebrew/homebrew.json \
-  --execute \
-  --result /absolute/path/to/cask-result.json
-```
+An accepted TestFlight receipt and original build snapshot are mandatory.
+Uncertain/unaccepted uploads stop for App Store Connect reconciliation; they
+are never treated as accepted. The job's ordinary Re-run button without a
+checkpoint stops before another allocation/upload.
 
-The executing command re-downloads and verifies the exact artifact, renders
-`Casks/positionbar.rb`, writes the immutable pairing record
-`Releases/positionbar-<version>-<build>.json`, runs `brew style --cask`, and
-commits only those two files. It pushes tap `main` and verifies that the remote
-tip equals the local commit.
+Homebrew reuses and reverifies the exact retained ZIP, or downloads its original
+public URL and checks the saved SHA-256/length. If the exact unpublished bytes
+are missing, it stops rather than rebuilding a replacement under the same
+version. Immutable uploaded assets and release records cannot be substituted.
+A lost upload/push response is reconciled before retry, without force-push.
 
-Machine-readable JSON goes to stdout and, when requested, `--result`; command
-logs go to stderr. The source pipeline uses this result file instead of parsing
-mixed output.
-
-`already published` means the generated cask and record already match local and
-remote `main`. If commit or push is interrupted after the local commit exists,
-rerunning the same `--execute` command verifies and reuses that exact commit
-without creating a duplicate. A push or remote read-back failure is reported as
-uncertain and must be checked against tap `main`; do not force-push.
-
-Homebrew requires an installed and explicitly trusted tap before `brew audit`
-will load a cask by name. This repository does not change Homebrew trust or
-security settings. After an authorized publication, an online audit can be run
-separately:
+## Cask verification and offline tests
 
 ```sh
-brew audit --cask --online positionbar/tap/positionbar
+python3 -B scripts/cask.py check --receipt /absolute/path/to/homebrew.json
+python3 -B scripts/cask.py publish --receipt /absolute/path/to/homebrew.json
+python3 -B -m unittest discover -s tests -v
 ```
 
-## Offline tests
+`publish` is dry-run unless `--execute` is supplied. Execution downloads the
+exact public ZIP, verifies identity, architecture, Developer ID, notarization,
+Gatekeeper, entitlements and Sparkle feed/key, styles the cask, then commits only
+`Casks/positionbar.rb` and its immutable `Releases/positionbar-<version>-<build>.json`
+record. It verifies remote main after push and can reuse its own interrupted
+local candidate/commit. Machine-readable results use `--result`; logs stay on
+stderr.
 
-```sh
-python3 -B -m unittest discover -s tests -p 'test_cask.py' -v
-```
-
-The tests use a synthetic universal App bundle, a temporary tap Git remote, and
-mocked Apple/GitHub verification boundaries. They cover TestFlight pairing,
-artifact download and signature validation, cask rendering and immutability,
-release-record identity, dry-run behavior, commit/push recovery, and separation
-of machine output from command logs.
-
-These are offline checks. They do not prove that a real Developer ID build,
-notarization, public Release download, tap push, `brew style`, `brew audit`, or
-`brew install` succeeded. Real acceptance requires a new paired release round.
-
-There is intentionally no GitHub Actions workflow. Publication runs from the
-local Mac with existing credentials and explicit execution.
+Offline tests mock Apple and public network boundaries. Passing them, YAML/bash
+syntax validation, or unsigned archives does not establish hosted signing,
+notarization, upload acceptance, a public Release, `brew audit`/`brew install`, or
+cross-machine update behavior. Those remain separate operational acceptance.

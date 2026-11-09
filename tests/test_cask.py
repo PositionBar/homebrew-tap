@@ -1,3 +1,5 @@
+import base64
+import copy
 import hashlib
 import json
 import os
@@ -48,12 +50,15 @@ def receipt(version="0.1.0", build=1015, source="a" * 40, sha="b" * 64):
             "notarizationStatus": "Accepted",
             "stapled": True,
             "gatekeeperVerified": True,
-            "sparkleEmbedded": False,
+            "sparkleEmbedded": True,
+            "sparkleFeedURL": cask.SPARKLE_FEED_URL,
+            "sparklePublicEDKey": base64.b64encode(b"k" * 32).decode(),
         },
         "githubRelease": {
             "repository": "PositionBar/homebrew-tap",
             "tag": tag,
-            "status": "uploaded",
+            "status": "published",
+            "appcast": f"https://github.com/PositionBar/homebrew-tap/releases/download/{tag}/appcast.xml",
         },
         "tap": {"repository": "PositionBar/homebrew-tap", "status": "pending"},
     }
@@ -75,11 +80,32 @@ class ReceiptTests(unittest.TestCase):
             lambda value: value["artifact"].update(
                 url="https://github.com/another/tap/releases/download/tag/PositionBar.zip"
             ),
-            lambda value: value["artifact"].update(sparkleEmbedded=True),
+            lambda value: value["artifact"].update(sparkleEmbedded=False),
         ):
             value = receipt()
             mutation(value)
             with tempfile.TemporaryDirectory() as temporary:
+                path = Path(temporary) / "homebrew.json"
+                path.write_text(json.dumps(value))
+                with self.assertRaises(ValueError):
+                    cask.load_receipt(path)
+
+    def test_rejects_missing_or_invalid_sparkle_publication(self):
+        mutations = (
+            lambda value: value["artifact"].pop("sparkleFeedURL"),
+            lambda value: value["artifact"].update(sparkleFeedURL="https://example.com/appcast.xml"),
+            lambda value: value["artifact"].pop("sparklePublicEDKey"),
+            lambda value: value["artifact"].update(sparklePublicEDKey="invalid!"),
+            lambda value: value["artifact"].update(sparklePublicEDKey=base64.b64encode(b"short").decode()),
+            lambda value: value["githubRelease"].pop("appcast"),
+            lambda value: value["githubRelease"].update(appcast=cask.SPARKLE_FEED_URL),
+            lambda value: value["githubRelease"].update(tag="positionbar-0.1.0-1016"),
+            lambda value: value["testFlight"].update(buildID="1016"),
+        )
+        for index, mutate in enumerate(mutations):
+            with self.subTest(case=index), tempfile.TemporaryDirectory() as temporary:
+                value = receipt()
+                mutate(value)
                 path = Path(temporary) / "homebrew.json"
                 path.write_text(json.dumps(value))
                 with self.assertRaises(ValueError):
@@ -100,6 +126,7 @@ class RenderingTests(unittest.TestCase):
         self.assertIn('  version "0.1.0,1015"\n', contents)
         self.assertIn("  depends_on macos: :golden_gate\n", contents)
         self.assertNotIn("depends_on arch:", contents)
+        self.assertIn("  auto_updates true\n", contents)
 
     def test_single_arch_cask_declares_arch(self):
         value = receipt()
@@ -139,13 +166,82 @@ class RenderingTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "artifact differs"):
                 cask.write_record(path, cask.release_record(receipt(sha="d" * 64)))
 
+    def test_release_record_preserves_and_locks_sparkle_publication(self):
+        original = cask.release_record(receipt())
+        self.assertEqual(original["githubRelease"], receipt()["githubRelease"])
+        self.assertEqual(original["artifact"]["sparklePublicEDKey"], receipt()["artifact"]["sparklePublicEDKey"])
+        mutations = (
+            ("artifact", "length", 124),
+            ("artifact", "sparklePublicEDKey", base64.b64encode(b"z" * 32).decode()),
+            ("artifact", "sparkleFeedURL", "https://example.com/appcast.xml"),
+            ("githubRelease", "appcast", "https://example.com/appcast.xml"),
+            ("testFlight", "buildID", "1016"),
+        )
+        with tempfile.TemporaryDirectory() as temporary:
+            path = Path(temporary) / "record.json"
+            cask.write_record(path, original)
+            for section, key, replacement in mutations:
+                with self.subTest(section=section, key=key):
+                    changed = copy.deepcopy(original)
+                    changed[section][key] = replacement
+                    with self.assertRaises(ValueError):
+                        cask.write_record(path, changed)
+                    self.assertEqual(json.loads(path.read_text()), original)
+            for key, replacement in (("source", "c" * 40), ("version", "0.1.1"), ("build", 1016)):
+                changed = copy.deepcopy(original)
+                changed[key] = replacement
+                with self.assertRaises(ValueError):
+                    cask.write_record(path, changed)
+
 
 class ArtifactTests(unittest.TestCase):
+    def test_rejects_disabled_or_mismatched_app_updates(self):
+        cases = (
+            ("PBUpdatesEnabled", "NO", "disables in-app updates"),
+            ("SUFeedURL", "https://example.com/feed.xml", "Sparkle feed differs"),
+            ("SUPublicEDKey", "wrong-key", "Sparkle key differs"),
+            ("framework", False, "missing Sparkle"),
+        )
+        for key, replacement, error in cases:
+            with self.subTest(field=key), tempfile.TemporaryDirectory() as temporary:
+                archive = Path(temporary) / "fixture.zip"
+                archive.write_bytes(b"synthetic")
+                value = receipt(sha=cask.digest(archive))
+                value["artifact"]["length"] = archive.stat().st_size
+
+                def fake_run(*args, capture=False):
+                    if args[0] == "ditto":
+                        contents = args[-1] / "PositionBar.app/Contents"
+                        contents.mkdir(parents=True)
+                        if key != "framework":
+                            (contents / "Frameworks/Sparkle.framework").mkdir(parents=True)
+                        info = {
+                            "CFBundleIdentifier": "com.positionbar.app",
+                            "CFBundleShortVersionString": "0.1.0",
+                            "CFBundleVersion": "1015",
+                            "PBSourceRevision": "a" * 40,
+                            "PBBuildID": "1015",
+                            "PBSourceDirty": False,
+                            "LSMinimumSystemVersion": "27.0",
+                            "PBUpdatesEnabled": "YES",
+                            "SUFeedURL": value["artifact"]["sparkleFeedURL"],
+                            "SUPublicEDKey": value["artifact"]["sparklePublicEDKey"],
+                        }
+                        if key != "framework":
+                            info[key] = replacement
+                        (contents / "Info.plist").write_bytes(plistlib.dumps(info))
+                    return ""
+
+                with patch.object(cask, "run", side_effect=fake_run):
+                    with self.assertRaisesRegex(ValueError, error):
+                        cask.verify_artifact(archive, value)
+
     def test_artifact_verification_checks_contents_and_platform_trust(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             work = root / "work/PositionBar.app/Contents"
             (work / "MacOS").mkdir(parents=True)
+            (work / "Frameworks/Sparkle.framework").mkdir(parents=True)
             (work / "MacOS/PositionBar").write_bytes(b"synthetic")
             entitlements = receipt()["artifact"]["entitlements"]
             (work / "Info.plist").write_bytes(
@@ -155,7 +251,9 @@ class ArtifactTests(unittest.TestCase):
                         "CFBundleShortVersionString": "0.1.0",
                         "CFBundleVersion": "1015",
                         "LSMinimumSystemVersion": "27.0",
-                        "PBUpdatesEnabled": "NO",
+                        "PBUpdatesEnabled": "YES",
+                        "SUFeedURL": cask.SPARKLE_FEED_URL,
+                        "SUPublicEDKey": receipt()["artifact"]["sparklePublicEDKey"],
                         "PBSourceRevision": "a" * 40,
                         "PBBuildID": "1015",
                         "PBSourceDirty": False,

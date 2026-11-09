@@ -2,6 +2,8 @@
 """Verify a paired PositionBar cask release and publish its cask locally."""
 
 import argparse
+import base64
+import binascii
 import hashlib
 import json
 import plistlib
@@ -19,6 +21,7 @@ ROOT = Path(__file__).resolve().parents[1]
 CASK = ROOT / "Casks/positionbar.rb"
 RELEASES = ROOT / "Releases"
 ACCEPTED = "upload_accepted_processing_pending"
+SPARKLE_FEED_URL = "https://github.com/PositionBar/homebrew-tap/releases/latest/download/appcast.xml"
 
 
 def require(condition, message):
@@ -83,7 +86,13 @@ def load_receipt(path):
     require(artifact.get("notarizationStatus") == "Accepted", "Notarization was not accepted")
     require(artifact.get("stapled") is True, "Notarization ticket was not stapled")
     require(artifact.get("gatekeeperVerified") is True, "Gatekeeper was not verified")
-    require(artifact.get("sparkleEmbedded") is False, "Cask artifact unexpectedly embeds Sparkle")
+    require(artifact.get("sparkleEmbedded") is True, "Cask artifact must embed Sparkle")
+    require(artifact.get("sparkleFeedURL") == SPARKLE_FEED_URL, "Cask Sparkle feed URL differs")
+    try:
+        public_key = base64.b64decode(artifact.get("sparklePublicEDKey", ""), validate=True)
+    except (ValueError, TypeError, binascii.Error) as error:
+        raise ValueError("Invalid Sparkle public key") from error
+    require(len(public_key) == 32, "Invalid Sparkle public key")
     require(re.fullmatch(r"[a-f0-9]{64}", artifact.get("sha256", "")), "Invalid cask SHA-256")
     require(type(artifact.get("length")) is int and artifact["length"] > 0, "Invalid cask length")
     architectures = artifact.get("architectures")
@@ -98,6 +107,11 @@ def load_receipt(path):
     require(release.get("repository") == "PositionBar/homebrew-tap", "Unexpected cask release repository")
     tag = release.get("tag", "")
     require(re.fullmatch(r"positionbar-[0-9]+\.[0-9]+\.[0-9]+-[0-9]+", tag), "Invalid cask release tag")
+    require(tag == f"positionbar-{version}-{build}", "Cask release tag differs from version/build")
+    require(
+        release.get("appcast") == f"https://github.com/PositionBar/homebrew-tap/releases/download/{tag}/appcast.xml",
+        "Appcast URL does not match its GitHub release",
+    )
     parsed = urllib.parse.urlparse(artifact["url"])
     expected_path = f"/PositionBar/homebrew-tap/releases/download/{tag}/{artifact['name']}"
     require(
@@ -150,7 +164,7 @@ def verify_artifact(archive, receipt):
         require(len(visible) == 1 and visible[0].name == artifact["appName"], "Cask App bundle changed")
         app = visible[0]
         require(app.is_dir(), "Cask artifact does not contain an App")
-        require(not (app / "Contents/Frameworks/Sparkle.framework").exists(), "Cask App embeds Sparkle")
+        require((app / "Contents/Frameworks/Sparkle.framework").is_dir(), "Cask App is missing Sparkle")
         require(
             not (app / "Contents/embedded.provisionprofile").exists(),
             "Cask App embeds an App Store profile",
@@ -181,8 +195,9 @@ def verify_artifact(archive, receipt):
         parts = minimum.split(".")
         normalized = ".".join(parts + ["0"] * max(0, 3 - len(parts)))
         require(normalized == artifact["minimumSystemVersion"], "Cask minimum macOS differs")
-        require(info.get("PBUpdatesEnabled") == "NO", "Cask App enables in-app updates")
-        require(not info.get("SUFeedURL") and not info.get("SUPublicEDKey"), "Cask App configures Sparkle")
+        require(info.get("PBUpdatesEnabled") == "YES", "Cask App disables in-app updates")
+        require(info.get("SUFeedURL") == artifact["sparkleFeedURL"], "Cask App Sparkle feed differs")
+        require(info.get("SUPublicEDKey") == artifact["sparklePublicEDKey"], "Cask App Sparkle key differs")
         entitlements = plistlib.loads(
             run("codesign", "-d", "--entitlements", ":-", app, capture=True).encode()
         )
@@ -226,6 +241,7 @@ def render_cask(receipt, minimum_symbol):
         '  desc "Read-only multi-account position monitor"',
         '  homepage "https://positionbar.com/"',
         "",
+        "  auto_updates true",
         f"  depends_on macos: :{minimum_symbol}",
     ]
     if len(architectures) == 1:
@@ -253,6 +269,8 @@ def release_record(receipt):
             "stapled",
             "gatekeeperVerified",
             "sparkleEmbedded",
+            "sparkleFeedURL",
+            "sparklePublicEDKey",
         )
     }
     return {
@@ -262,6 +280,7 @@ def release_record(receipt):
         "build": receipt["build"],
         "testFlight": receipt["testFlight"],
         "artifact": artifact,
+        "githubRelease": receipt["githubRelease"],
         "tapRepository": "PositionBar/homebrew-tap",
     }
 
@@ -317,10 +336,11 @@ def write_record(path, record):
             "Existing release record version/build differs",
         )
         require(
-            current.get("artifact", {}).get("sha256") == record["artifact"]["sha256"]
-            and current.get("artifact", {}).get("url") == record["artifact"]["url"],
+            current.get("artifact") == record["artifact"],
             "Existing release record artifact differs",
         )
+        require(current.get("githubRelease") == record["githubRelease"], "Existing release record appcast differs")
+        require(current.get("testFlight") == record["testFlight"], "Existing release record TestFlight identity differs")
         if path.read_text() == encoded:
             return False
     path.parent.mkdir(parents=True, exist_ok=True)
