@@ -8,6 +8,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+import zipfile
 from pathlib import Path
 from unittest.mock import Mock, patch
 
@@ -261,24 +262,20 @@ class ArtifactTests(unittest.TestCase):
                 )
             )
             archive = root / "PositionBar.zip"
-            subprocess.run(
-                [
-                    "ditto",
-                    "-c",
-                    "-k",
-                    "--keepParent",
-                    root / "work/PositionBar.app",
-                    archive,
-                ],
-                check=True,
-            )
+            # This is a synthetic bundle, not a macOS signing/extraction test.
+            # Keep tap regressions runnable on the Ubuntu pull-request runner.
+            with zipfile.ZipFile(archive, "w", compression=zipfile.ZIP_DEFLATED) as fixture:
+                for path in (root / "work").rglob("*"):
+                    fixture.write(path, path.relative_to(root / "work").as_posix())
             value = receipt()
             value["artifact"]["sha256"] = hashlib.sha256(archive.read_bytes()).hexdigest()
             value["artifact"]["length"] = archive.stat().st_size
 
             def fake_run(*args, capture=False):
                 if args[0] == "ditto":
-                    return subprocess.run([str(value) for value in args], check=True, text=True, capture_output=capture).stdout
+                    with zipfile.ZipFile(args[-2]) as fixture:
+                        fixture.extractall(args[-1])
+                    return ""
                 if args[:3] == ("codesign", "-d", "--entitlements"):
                     return plistlib.dumps(entitlements).decode()
                 if args[0] == "lipo":
