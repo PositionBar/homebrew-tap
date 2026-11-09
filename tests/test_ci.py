@@ -38,6 +38,18 @@ class InputTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "run ID"):
             ci.recovery_artifact("../escape")
 
+    def test_pr_source_verification_is_fixed_read_only_and_excludes_forks(self):
+        workflow = (Path(__file__).resolve().parents[1] / ".github/workflows/checks.yml").read_text()
+        self.assertIn("github.event_name == 'pull_request'", workflow)
+        self.assertIn("github.event.pull_request.head.repo.full_name == github.repository", workflow)
+        self.assertIn("SOURCE_SHA: 37bba86e741df5d16de36ea775e1d3aa99b817c7", workflow)
+        self.assertIn("source/scripts/unified_release.py verify", workflow)
+        self.assertIn("PositionBarAppTests.UpdateConfigurationTests", workflow)
+        self.assertNotIn("APP_STORE_API_PRIVATE_KEY", workflow)
+        self.assertNotIn("DEVELOPER_ID_CERTIFICATE", workflow)
+        self.assertNotIn("SPARKLE_PRIVATE_KEY", workflow)
+        self.assertNotIn("contents: write", workflow)
+
     def test_publication_workflow_is_manual_verify_default_and_has_checkpoints(self):
         workflow = (Path(__file__).resolve().parents[1] / ".github/workflows/release.yml").read_text()
         self.assertIn("workflow_dispatch:", workflow)

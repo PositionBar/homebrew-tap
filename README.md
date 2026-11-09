@@ -11,11 +11,18 @@ build and global Build ID. TestFlight uses the App Store target without Sparkle;
 Homebrew uses a separately signed, notarized Developer ID app with Sparkle.
 The cask and signed appcast reference the exact same notarized ZIP bytes.
 
-Only manual `workflow_dispatch` is enabled. `mode=verify` is the default and runs
+Publication uses only manual `workflow_dispatch`. `mode=verify` is the default and runs
 offline regressions plus both unsigned archives on the standard GitHub-hosted
 `xcode-27` arm64 runner. It does not allocate a global number, sign, notarize,
 upload TestFlight, create a Release or change the cask. The requested source
 commit must already include the paired-release implementation.
+
+For this repository's own PRs, `Tap checks` also verifies fixed reviewed source
+`37bba86e741df5d16de36ea775e1d3aa99b817c7` on `xcode-27`. It runs the actual
+Updater suite and both unsigned archives using only the source-read token. Fork
+PRs never receive private source. This PR verification cannot sign or publish and
+does not require merging the new manual workflow into main first. The reference
+SHA is an integration-test input, not a publication version fallback.
 
 `mode=release` is an actual publication. It runs only from tap main after
 verification, with a full `source_sha` matching the observed source main for a
