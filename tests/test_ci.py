@@ -57,7 +57,7 @@ class InputTests(unittest.TestCase):
         workflow = (Path(__file__).resolve().parents[1] / ".github/workflows/checks.yml").read_text()
         self.assertIn("github.event_name == 'pull_request'", workflow)
         self.assertIn("github.event.pull_request.head.repo.full_name == github.repository", workflow)
-        self.assertIn("SOURCE_SHA: 9eb1a67df729482f402a1130805b7dbde0c27c23", workflow)
+        self.assertIn("SOURCE_SHA: b3441a53f786ffc2027b025dab02be3c5bea81fd", workflow)
         self.assertIn("source/scripts/unified_release.py verify", workflow)
         self.assertIn("PositionBarAppTests.UpdateConfigurationTests", workflow)
         self.assertIn('source/scripts/check test-report "$RUNNER_TEMP/updater-tests.log"', workflow)
