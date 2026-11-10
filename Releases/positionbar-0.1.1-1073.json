@@ -1,0 +1,48 @@
+{
+  "schemaVersion": 1,
+  "source": "ff3302086e131ab6eb1abb09bf65e7d210441c6a",
+  "version": "0.1.1",
+  "build": 1073,
+  "registryStatus": "succeeded",
+  "artifact": {
+    "url": "https://github.com/PositionBar/releases/releases/download/positionbar-0.1.1-1073/PositionBar-0.1.1-1073.dmg",
+    "sha256": "e359c872e05f9b6eace82ea5f2f4a2d4f3b0b315c5c7822dc53181f16af5b83b",
+    "length": 15363279,
+    "name": "PositionBar-0.1.1-1073.dmg",
+    "appName": "PositionBar.app",
+    "bundleIdentifier": "com.positionbar.app",
+    "architectures": [
+      "arm64",
+      "x86_64"
+    ],
+    "minimumSystemVersion": "26.0.0",
+    "teamID": "TX6HZR5RB7",
+    "entitlements": {
+      "com.apple.security.app-sandbox": true,
+      "com.apple.security.network.client": true,
+      "com.apple.security.network.server": true,
+      "com.apple.security.temporary-exception.mach-lookup.global-name": [
+        "com.positionbar.app-spks",
+        "com.positionbar.app-spki"
+      ]
+    },
+    "developerIDVerified": true,
+    "notarizationStatus": "Accepted",
+    "stapled": true,
+    "gatekeeperVerified": true,
+    "sparkleEmbedded": true,
+    "sparkleFeedURL": "https://github.com/PositionBar/releases/releases/latest/download/appcast.xml",
+    "sparklePublicEDKey": "VoAIW8gggrVrGAWdI0Zsvln6tOD9GHXQoHubQ+oG9KM="
+  },
+  "githubRelease": {
+    "repository": "PositionBar/releases",
+    "tag": "positionbar-0.1.1-1073",
+    "status": "published",
+    "appcast": "https://github.com/PositionBar/releases/releases/download/positionbar-0.1.1-1073/appcast.xml",
+    "appcastSHA256": "5feb7414d41dea8e63c8c6af0ec525119a47ae0af4f4cdc00113691f4c68acc9",
+    "appcastLength": 4229,
+    "notesSHA256": "f4905eff3844152cd7cd153dca572cf0a86331442d2b9f9dfdcf57721b59f70d",
+    "notesLength": 211
+  },
+  "tapRepository": "PositionBar/homebrew-tap"
+}
