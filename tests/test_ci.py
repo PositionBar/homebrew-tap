@@ -57,7 +57,7 @@ class InputTests(unittest.TestCase):
         workflow = (Path(__file__).resolve().parents[1] / ".github/workflows/checks.yml").read_text()
         self.assertIn("github.event_name == 'pull_request'", workflow)
         self.assertIn("github.event.pull_request.head.repo.full_name == github.repository", workflow)
-        self.assertIn("SOURCE_SHA: dd26662148d890dccb416c9a499bbc143188c484", workflow)
+        self.assertIn("SOURCE_SHA: d9b646d79d737f42c7b004b4bf7fc54d21e726f9", workflow)
         self.assertIn("source/scripts/unified_release.py verify", workflow)
         self.assertIn("PositionBarAppTests.UpdateConfigurationTests", workflow)
         self.assertIn('source/scripts/check test-report "$RUNNER_TEMP/updater-tests.log"', workflow)
@@ -82,6 +82,8 @@ class InputTests(unittest.TestCase):
         self.assertNotIn("APP_STORE_PROFILE", workflow)
         self.assertIn("unified_release.py prepare", workflow)
         self.assertIn("name: homebrew-state", workflow)
+        self.assertIn("PositionBar-*.dmg", workflow)
+        self.assertNotIn("PositionBar-*.zip", workflow)
         self.assertIn('source/scripts/check test-report "$RUNNER_TEMP/updater-tests.log"', workflow)
         self.assertIn('tap/scripts/ci.py tests --report "$RUNNER_TEMP/updater-tests.json"', workflow)
 

@@ -9,7 +9,7 @@ brew install --cask positionbar/tap/positionbar
 ```
 
 The website links to this repository's [Releases](https://github.com/PositionBar/homebrew-tap/releases).
-The same immutable ZIP is used by downloads, Sparkle and the cask.
+The same immutable DMG is used by downloads, Sparkle and the cask.
 
 ## Manual workflow
 
@@ -22,15 +22,15 @@ The same immutable ZIP is used by downloads, Sparkle and the cask.
 
 Fresh publication requires both this workflow and application source to be on main.
 Verification checks the pinned source, locked dependencies, offline regressions,
-executed Updater XCTest cases and one unsigned direct-distribution archive. It
+executed Updater XCTest cases and one unsigned Universal direct-distribution archive. It
 allocates no global Build ID and uses no signing or publication credentials.
 The PR check pins the exact reviewed source in `checks.yml`; update that SHA
 alongside source changes before treating cloud verification as current evidence.
 
 Actual release reserves a new global Build ID with variant `developer-id-release`,
 keeps Team `TX6HZR5RB7` / Bundle ID `com.positionbar.app`, signs with Developer ID
-Application and hardened runtime, notarizes, staples, and verifies Gatekeeper.
-The receipt fixes source, version, Build ID, ZIP SHA-256/length, architectures,
+Application and hardened runtime. The App targets macOS 26+ and must contain both arm64 and x86_64. It notarizes/staples the App, creates an APFS/LZFSE DMG with an Applications link, signs/notarizes/staples the DMG, then verifies both layers with Gatekeeper and a read-only, no-auto-open mount.
+The receipt fixes source, version, Build ID, DMG SHA-256/length, architectures,
 entitlements, Apple identity and Sparkle feed/key. No TestFlight receipt is required.
 The cask publisher downloads the public bytes and verifies those facts again.
 
@@ -48,7 +48,7 @@ Latest promotion and cask updates refuse to roll back a newer Build ID.
 | Secret `DEVELOPER_ID_CERTIFICATE_PASSWORD` | Unlock that P12 |
 | Secret `APP_STORE_API_PRIVATE_KEY` | Existing Apple API P8, used by notarytool |
 | Variables `APP_STORE_API_KEY_ID`, `APP_STORE_API_ISSUER_ID` | Identify that notarization API key |
-| Secret `SPARKLE_PRIVATE_KEY` | Sign the ZIP, appcast and release notes with the existing key |
+| Secret `SPARKLE_PRIVATE_KEY` | Sign the DMG, appcast and release notes with the existing key |
 | Automatic `github.token` | Public release assets, retained artifacts and cask push |
 
 App Store application/installer certificates and provisioning profiles are not
@@ -59,13 +59,13 @@ TestFlight scheduler must be stopped before enabling this workflow as the writer
 ## Recovery
 
 `release-state` saves identity before signing. `homebrew-state` saves only the
-identity, non-secret receipt, exact notarized ZIP and signed appcast/notes for 30
+identity, non-secret receipt, exact notarized DMG and signed appcast/notes for 30
 days. No private source, signing material, Keychain, intermediate archive, dSYM,
 package cache or build log is uploaded to this public repository.
 
 Dispatch again with the original source SHA and `resume_run_id`. Recovery accepts
-only this tap's main direct-release workflow. A checkpoint without a verified ZIP
-cannot continue compiling: start a new attempt and get a new Build ID. Once ZIP
+only this tap's main direct-release workflow. A checkpoint without a verified DMG
+cannot continue compiling: start a new attempt and get a new Build ID. Once DMG
 facts are saved, restore the exact bytes or retrieve the original URL; never
 rebuild a replacement under the old identity. A job rerun with missing state
 fails closed. Legacy TestFlight checkpoints are not accepted.

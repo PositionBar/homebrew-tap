@@ -13,7 +13,7 @@ on:
         type: choice
         options: [verify, release]
       resume_run_id:
-        description: Earlier direct-release run ID, only for restoring its original identity and verified ZIP
+        description: Earlier direct-release run ID, only for restoring its original identity and verified DMG
         required: false
         default: ''
         type: string
@@ -164,7 +164,7 @@ jobs:
           path: ${{ runner.temp }}/release-state
           retention-days: 30
           if-no-files-found: warn
-      - name: Sign and notarize exact Sparkle ZIP, verify public assets, update cask
+      - name: Sign and notarize exact Sparkle DMG, verify public assets, update cask
         env:
           GH_TOKEN: ${{ github.token }}
           DEVELOPER_ID_CERTIFICATE_P12_BASE64: ${{ secrets.DEVELOPER_ID_CERTIFICATE_P12_BASE64 }}
@@ -188,7 +188,7 @@ jobs:
           path: |
             ${{ runner.temp }}/release-state/release
             ${{ runner.temp }}/release-state/homebrew/homebrew.json
-            ${{ runner.temp }}/release-state/homebrew/PositionBar-*.zip
+            ${{ runner.temp }}/release-state/homebrew/PositionBar-*.dmg
             ${{ runner.temp }}/release-state/homebrew/PositionBar-*.txt
             ${{ runner.temp }}/release-state/homebrew/appcast.xml
           retention-days: 30

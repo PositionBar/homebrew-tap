@@ -8,6 +8,8 @@ import hashlib
 import json
 import plistlib
 from pathlib import Path
+from contextlib import contextmanager
+import os
 import re
 import shutil
 import subprocess
@@ -76,6 +78,7 @@ def load_receipt(path):
         "entitlements",
     ):
         require(key in artifact, "Cask artifact field is missing: " + key)
+    require(artifact["name"] == f"PositionBar-{version}-{build}.dmg", "Expected the release DMG")
     require(artifact["bundleIdentifier"] == "com.positionbar.app", "Bundle identifier changed")
     require(artifact["appName"] == "PositionBar.app", "App bundle name changed")
     require(artifact.get("developerIDVerified") is True, "Developer ID was not verified")
@@ -93,8 +96,8 @@ def load_receipt(path):
     require(type(artifact.get("length")) is int and artifact["length"] > 0, "Invalid cask length")
     architectures = artifact.get("architectures")
     require(
-        architectures in (["arm64"], ["x86_64"], ["arm64", "x86_64"]),
-        "Unsupported cask architectures",
+        architectures == ["arm64", "x86_64"],
+        "Expected both Universal architectures",
     )
     minimum = artifact.get("minimumSystemVersion", "")
     require(re.fullmatch(r"[0-9]+\.[0-9]+\.[0-9]+", minimum), "Invalid minimum macOS version")
@@ -145,20 +148,33 @@ def download(url, destination, expected_sha, expected_length):
     require(value.hexdigest() == expected_sha, "Downloaded cask SHA-256 differs")
 
 
+@contextmanager
+def mounted_dmg(archive):
+    with tempfile.TemporaryDirectory(prefix="positionbar-cask-") as temporary:
+        mount = Path(temporary) / "volume"
+        mount.mkdir()
+        run("hdiutil", "attach", archive, "-readonly", "-nobrowse", "-noautoopen", "-mountpoint", mount)
+        try:
+            yield mount
+        finally:
+            run("hdiutil", "detach", mount)
+
+
 def verify_artifact(archive, receipt):
     artifact = receipt["artifact"]
     require(digest(archive) == artifact["sha256"], "Cask file SHA-256 differs")
     require(archive.stat().st_size == artifact["length"], "Cask file length differs")
-    with tempfile.TemporaryDirectory(prefix="positionbar-cask-") as temporary:
-        extracted = Path(temporary)
-        run("ditto", "-x", "-k", archive, extracted)
-        visible = [
-            path
-            for path in extracted.iterdir()
-            if path.name not in ("__MACOSX", ".DS_Store")
-        ]
-        require(len(visible) == 1 and visible[0].name == artifact["appName"], "Cask App bundle changed")
-        app = visible[0]
+    run("codesign", "--verify", "--strict", "-R",
+        '=anchor apple generic and certificate leaf[field.1.2.840.113635.100.6.1.13] exists '
+        f'and certificate leaf[subject.OU] = "{artifact["teamID"]}"', archive)
+    run("xcrun", "stapler", "validate", archive)
+    run("spctl", "--assess", "--type", "open", "--context", "context:primary-signature", archive)
+    with mounted_dmg(archive) as extracted:
+        visible = {path.name for path in extracted.iterdir() if not path.name.startswith(".")}
+        require(visible == {artifact["appName"], "Applications"}, "DMG contents differ")
+        require((extracted / "Applications").is_symlink() and os.readlink(extracted / "Applications") == "/Applications",
+                "DMG Applications link differs")
+        app = extracted / artifact["appName"]
         require(app.is_dir(), "Cask artifact does not contain an App")
         require((app / "Contents/Frameworks/Sparkle.framework").is_dir(), "Cask App is missing Sparkle")
         require(
@@ -226,7 +242,6 @@ def homebrew_macos_symbol(version):
 
 def render_cask(receipt, minimum_symbol):
     artifact = receipt["artifact"]
-    architectures = tuple(artifact["architectures"])
     lines = [
         'cask "positionbar" do',
         f'  version "{receipt["version"]},{receipt["build"]}"',
@@ -240,8 +255,6 @@ def render_cask(receipt, minimum_symbol):
         "  auto_updates true",
         f"  depends_on macos: :{minimum_symbol}",
     ]
-    if len(architectures) == 1:
-        lines.append(f"  depends_on arch: :{architectures[0]}")
     lines.extend(["", f'  app "{artifact["appName"]}"', "end", ""])
     return "\n".join(lines)
 

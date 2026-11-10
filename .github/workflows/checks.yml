@@ -25,7 +25,7 @@ jobs:
     timeout-minutes: 60
     env:
       # Fixed reviewed integration source; publication still takes an explicit SHA.
-      SOURCE_SHA: dd26662148d890dccb416c9a499bbc143188c484
+      SOURCE_SHA: d9b646d79d737f42c7b004b4bf7fc54d21e726f9
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:

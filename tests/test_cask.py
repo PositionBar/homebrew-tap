@@ -20,7 +20,7 @@ import cask
 
 def receipt(version="0.1.0", build=1015, source="a" * 40, sha="b" * 64):
     tag = f"positionbar-{version}-{build}"
-    name = f"PositionBar-{version}-{build}.zip"
+    name = f"PositionBar-{version}-{build}.dmg"
     return {
         "schemaVersion": 1,
         "status": "artifact_published",
@@ -36,7 +36,7 @@ def receipt(version="0.1.0", build=1015, source="a" * 40, sha="b" * 64):
             "appName": "PositionBar.app",
             "bundleIdentifier": "com.positionbar.app",
             "architectures": ["arm64", "x86_64"],
-            "minimumSystemVersion": "27.0.0",
+            "minimumSystemVersion": "26.0.0",
             "teamID": "TX6HZR5RB7",
             "entitlements": {
                 "com.apple.security.app-sandbox": True,
@@ -75,7 +75,7 @@ class ReceiptTests(unittest.TestCase):
         for mutation in (
             lambda value: value.update(build=0),
             lambda value: value["artifact"].update(
-                url="https://github.com/another/tap/releases/download/tag/PositionBar.zip"
+                url="https://github.com/another/tap/releases/download/tag/PositionBar.dmg"
             ),
             lambda value: value["artifact"].update(sparkleEmbedded=False),
         ):
@@ -125,10 +125,14 @@ class RenderingTests(unittest.TestCase):
         self.assertNotIn("depends_on arch:", contents)
         self.assertIn("  auto_updates true\n", contents)
 
-    def test_single_arch_cask_declares_arch(self):
+    def test_receipt_rejects_single_arch_release(self):
         value = receipt()
         value["artifact"]["architectures"] = ["arm64"]
-        self.assertIn("  depends_on arch: :arm64\n", cask.render_cask(value, "golden_gate"))
+        with tempfile.TemporaryDirectory() as temporary:
+            path = Path(temporary) / "receipt.json"
+            path.write_text(json.dumps(value))
+            with self.assertRaisesRegex(ValueError, "Universal"):
+                cask.load_receipt(path)
 
     def test_candidate_identity_is_idempotent_and_immutable(self):
         with tempfile.TemporaryDirectory() as temporary:
@@ -200,13 +204,14 @@ class ArtifactTests(unittest.TestCase):
         )
         for key, replacement, error in cases:
             with self.subTest(field=key), tempfile.TemporaryDirectory() as temporary:
-                archive = Path(temporary) / "fixture.zip"
+                archive = Path(temporary) / "fixture.dmg"
                 archive.write_bytes(b"synthetic")
                 value = receipt(sha=cask.digest(archive))
                 value["artifact"]["length"] = archive.stat().st_size
 
                 def fake_run(*args, capture=False):
-                    if args[0] == "ditto":
+                    if args[:2] == ("hdiutil", "attach"):
+                        (args[-1] / "Applications").symlink_to("/Applications", target_is_directory=True)
                         contents = args[-1] / "PositionBar.app/Contents"
                         contents.mkdir(parents=True)
                         if key != "framework":
@@ -218,7 +223,7 @@ class ArtifactTests(unittest.TestCase):
                             "PBSourceRevision": "a" * 40,
                             "PBBuildID": "1015",
                             "PBSourceDirty": False,
-                            "LSMinimumSystemVersion": "27.0",
+                            "LSMinimumSystemVersion": "26.0",
                             "PBUpdatesEnabled": "YES",
                             "SUFeedURL": value["artifact"]["sparkleFeedURL"],
                             "SUPublicEDKey": value["artifact"]["sparklePublicEDKey"],
@@ -246,7 +251,7 @@ class ArtifactTests(unittest.TestCase):
                         "CFBundleIdentifier": "com.positionbar.app",
                         "CFBundleShortVersionString": "0.1.0",
                         "CFBundleVersion": "1015",
-                        "LSMinimumSystemVersion": "27.0",
+                        "LSMinimumSystemVersion": "26.0",
                         "PBUpdatesEnabled": "YES",
                         "SUFeedURL": cask.SPARKLE_FEED_URL,
                         "SUPublicEDKey": receipt()["artifact"]["sparklePublicEDKey"],
@@ -256,7 +261,7 @@ class ArtifactTests(unittest.TestCase):
                     }
                 )
             )
-            archive = root / "PositionBar.zip"
+            archive = root / "PositionBar.dmg"
             # This is a synthetic bundle, not a macOS signing/extraction test.
             # Keep tap regressions runnable on the Ubuntu pull-request runner.
             with zipfile.ZipFile(archive, "w", compression=zipfile.ZIP_DEFLATED) as fixture:
@@ -267,8 +272,9 @@ class ArtifactTests(unittest.TestCase):
             value["artifact"]["length"] = archive.stat().st_size
 
             def fake_run(*args, capture=False):
-                if args[0] == "ditto":
-                    with zipfile.ZipFile(args[-2]) as fixture:
+                if args[:2] == ("hdiutil", "attach"):
+                    (args[-1] / "Applications").symlink_to("/Applications", target_is_directory=True)
+                    with zipfile.ZipFile(args[2]) as fixture:
                         fixture.extractall(args[-1])
                     return ""
                 if args[:3] == ("codesign", "-d", "--entitlements"):
@@ -279,7 +285,7 @@ class ArtifactTests(unittest.TestCase):
 
             with patch.object(cask, "run", side_effect=fake_run):
                 facts = cask.verify_artifact(archive, value)
-        self.assertEqual(facts["minimumSystemVersion"], "27.0.0")
+        self.assertEqual(facts["minimumSystemVersion"], "26.0.0")
         self.assertEqual(facts["architectures"], ("arm64", "x86_64"))
 
 
@@ -312,7 +318,7 @@ class LocalGitPublishTests(unittest.TestCase):
             (cask, "RELEASES", self.records),
             (cask, "download", Mock()),
             (cask, "verify_artifact", Mock(return_value={
-                "minimumSystemVersion": "27.0.0",
+                "minimumSystemVersion": "26.0.0",
                 "architectures": ("arm64", "x86_64"),
                 "appName": "PositionBar.app",
             })),
@@ -425,7 +431,7 @@ cask.CASK = cask.ROOT / "Casks/positionbar.rb"
 cask.RELEASES = cask.ROOT / "Releases"
 cask.download = lambda *args: None
 cask.verify_artifact = lambda *args: {{
-    "minimumSystemVersion": "27.0.0",
+    "minimumSystemVersion": "26.0.0",
     "architectures": ("arm64", "x86_64"),
     "appName": "PositionBar.app",
 }}
