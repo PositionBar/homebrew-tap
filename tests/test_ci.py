@@ -1,6 +1,7 @@
 import json
 from pathlib import Path
 import sys
+import tempfile
 import unittest
 from unittest.mock import patch
 
@@ -8,6 +9,20 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 import ci
 
 class InputTests(unittest.TestCase):
+    def test_updater_report_requires_executed_suite_without_failures_or_skips(self):
+        good = {"result": "passed", "passed": 1, "skipped": 0,
+                "records": [{"id": "-[PositionBarAppTests.UpdateConfigurationTests testTapFeed]"}]}
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "report.json"
+            path.write_text(json.dumps(good))
+            self.assertEqual(ci.verify_updater_report(path), 1)
+            for changes in ({"result": "failed"}, {"skipped": 1}, {"passed": 0, "records": []},
+                            {"records": [{"id": "-[OtherTests testOne]"}]}):
+                with self.subTest(changes=changes):
+                    path.write_text(json.dumps(dict(good, **changes)))
+                    with self.assertRaisesRegex(ValueError, "must execute"):
+                        ci.verify_updater_report(path)
+
     def test_source_requires_full_sha_and_current_main_only_for_fresh_release(self):
         with patch.object(ci, "github", return_value={"sha": "a" * 40}) as github:
             self.assertEqual(ci.resolve_source("b" * 40, False), "b" * 40)
@@ -45,6 +60,8 @@ class InputTests(unittest.TestCase):
         self.assertIn("SOURCE_SHA: 3fb09246af12ef6a5b7f4d86d5e6e98e73e57fe4", workflow)
         self.assertIn("source/scripts/unified_release.py verify", workflow)
         self.assertIn("PositionBarAppTests.UpdateConfigurationTests", workflow)
+        self.assertIn('source/scripts/check test-report "$RUNNER_TEMP/updater-tests.log"', workflow)
+        self.assertIn('tap/scripts/ci.py tests --report "$RUNNER_TEMP/updater-tests.json"', workflow)
         self.assertNotIn("APP_STORE_API_PRIVATE_KEY", workflow)
         self.assertNotIn("DEVELOPER_ID_CERTIFICATE", workflow)
         self.assertNotIn("SPARKLE_PRIVATE_KEY", workflow)
@@ -62,5 +79,7 @@ class InputTests(unittest.TestCase):
         self.assertLess(workflow.index("name: testflight-state"), workflow.index("name: Sign and notarize"))
         self.assertNotIn("path: ${{ runner.temp }}/testflight-build", workflow)
         self.assertIn("name: homebrew-state", workflow)
+        self.assertIn('source/scripts/check test-report "$RUNNER_TEMP/updater-tests.log"', workflow)
+        self.assertIn('tap/scripts/ci.py tests --report "$RUNNER_TEMP/updater-tests.json"', workflow)
 
 if __name__ == "__main__": unittest.main()

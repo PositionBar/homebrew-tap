@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
-"""Resolve explicit release inputs and trusted same-tap recovery artifacts."""
+"""Validate release inputs, Updater test evidence and same-tap recovery artifacts."""
 import argparse
 import json
+from pathlib import Path
 import re
 import subprocess
 import sys
@@ -44,6 +45,15 @@ def recovery_artifact(run_id):
     raise ValueError("No retained checkpoint is available; do not repeat the TestFlight upload")
 
 
+def verify_updater_report(path):
+    report = json.loads(Path(path).read_text())
+    require(report["result"] == "passed" and report["skipped"] == 0
+            and report["records"]
+            and all(".UpdateConfigurationTests " in row["id"] for row in report["records"]),
+            "Updater XCTest cases must execute without failures or skips")
+    return report["passed"]
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     sub = parser.add_subparsers(dest="command", required=True)
@@ -52,11 +62,15 @@ def main():
     source.add_argument("--publish", action="store_true")
     restore = sub.add_parser("recovery")
     restore.add_argument("--run-id", required=True)
+    tests = sub.add_parser("tests")
+    tests.add_argument("--report", type=Path, required=True)
     args = parser.parse_args()
     if args.command == "source":
         print("sha=" + resolve_source(args.sha, args.publish))
-    else:
+    elif args.command == "recovery":
         print("artifact=" + recovery_artifact(args.run_id))
+    else:
+        print(f"Updater tests: {verify_updater_report(args.report)} passed, 0 skipped")
 
 
 if __name__ == "__main__":

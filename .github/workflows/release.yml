@@ -82,6 +82,8 @@ jobs:
           swift test --package-path source/apps/macos --scratch-path "$RUNNER_TEMP/updater-tests" \
             --force-resolved-versions --filter 'PositionBarAppTests.UpdateConfigurationTests' \
             > "$RUNNER_TEMP/updater-tests.log" 2>&1
+          python3 -B source/scripts/check test-report "$RUNNER_TEMP/updater-tests.log" > "$RUNNER_TEMP/updater-tests.json"
+          python3 -B tap/scripts/ci.py tests --report "$RUNNER_TEMP/updater-tests.json"
           python3 -B source/scripts/unified_release.py verify --source "$SOURCE_SHA" \
             --work "$RUNNER_TEMP/unsigned-verification" > "$RUNNER_TEMP/unsigned-archives.log" 2>&1
           echo 'Offline checks and both unsigned archives passed. Signing, notarization and uploads have not run.' >> "$GITHUB_STEP_SUMMARY"

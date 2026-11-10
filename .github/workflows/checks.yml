@@ -56,6 +56,8 @@ jobs:
           swift test --package-path source/apps/macos --scratch-path "$RUNNER_TEMP/updater-tests" \
             --force-resolved-versions --filter 'PositionBarAppTests.UpdateConfigurationTests' \
             > "$RUNNER_TEMP/updater-tests.log" 2>&1
+          python3 -B source/scripts/check test-report "$RUNNER_TEMP/updater-tests.log" > "$RUNNER_TEMP/updater-tests.json"
+          python3 -B tap/scripts/ci.py tests --report "$RUNNER_TEMP/updater-tests.json"
       - name: Verify both unsigned distribution archives
         run: |
           if ! python3 -B source/scripts/unified_release.py verify --source "$SOURCE_SHA" \
