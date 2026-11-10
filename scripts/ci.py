@@ -22,7 +22,10 @@ def github(endpoint):
 
 
 def resolve_source(source, publishing):
-    require(re.fullmatch(r"[0-9a-f]{40}", source), "Pass the full application source SHA")
+    if not source:
+        source = github("repos/sorcererxw/positionbar/commits/main").get("sha", "")
+    require(isinstance(source, str) and re.fullmatch(r"[0-9a-f]{40}", source),
+            "Pass the full application source SHA")
     if publishing:
         current = github("repos/sorcererxw/positionbar/commits/main")
         require(current.get("sha") == source, "Publication must use the observed private source main SHA")
@@ -58,7 +61,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     sub = parser.add_subparsers(dest="command", required=True)
     source = sub.add_parser("source")
-    source.add_argument("--sha", required=True)
+    source.add_argument("--sha", default="")
     source.add_argument("--publish", action="store_true")
     restore = sub.add_parser("recovery")
     restore.add_argument("--run-id", required=True)

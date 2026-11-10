@@ -11,20 +11,24 @@ brew install --cask positionbar/tap/positionbar
 The website links to this repository's [Releases](https://github.com/PositionBar/homebrew-tap/releases).
 The same immutable DMG is used by downloads, Sparkle and the cask.
 
-## Manual workflow
+## Workflow
 
 `PositionBar direct release` (`.github/workflows/release.yml`) runs on GitHub-hosted
-`xcode-27` runners. It never publishes on push or a pull request.
+`xcode-27` runners, with offline tap tests on Ubuntu. This single workflow handles
+automatic checks and manual publication. Pushes and pull requests never publish.
 
-- `source_sha`: full application commit from the private `sorcererxw/positionbar` repository.
+- `source_sha`: optional expected application commit from the private `sorcererxw/positionbar` repository; defaults to its current main. Recovery requires the original full SHA.
 - `mode`: `verify` by default; `release` explicitly signs, notarizes and publishes.
 - `resume_run_id`: optional earlier direct-release run from this tap's main workflow.
 
 Fresh publication requires both this workflow and application source to be on main.
+Manual or API callers select `mode=release`; no source SHA is needed for a fresh
+release. The workflow resolves main once, pins that exact commit through the jobs,
+and checks it again before publication. Default `mode=verify` only checks it.
 Verification checks the pinned source, locked dependencies, offline regressions,
 executed Updater XCTest cases and one unsigned Universal direct-distribution archive. It
 allocates no global Build ID and uses no signing or publication credentials.
-The PR check pins the exact reviewed source in `checks.yml`; update that SHA
+The PR check pins the exact reviewed source as `PR_SOURCE_SHA` in `release.yml`; update that SHA
 alongside source changes before treating cloud verification as current evidence.
 
 Actual release reserves a new global Build ID with variant `developer-id-release`,

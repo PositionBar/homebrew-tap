@@ -1,10 +1,14 @@
 name: PositionBar direct release
 on:
+  pull_request:
+  push:
+    branches: [main]
   workflow_dispatch:
     inputs:
       source_sha:
-        description: Full 40-character application source commit (release requires current source main)
-        required: true
+        description: Optional expected source SHA; defaults to source main, required original SHA for recovery
+        required: false
+        default: ''
         type: string
       mode:
         description: Verify only, or explicitly publish the notarized direct distribution
@@ -19,18 +23,32 @@ on:
         type: string
 permissions:
   contents: read
-# All fresh and recovery runs share one writer. Never cancel an active upload.
-concurrency:
-  group: positionbar-direct-release
-  cancel-in-progress: false
 defaults:
   run:
     shell: bash
 jobs:
+  offline:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - run: python3 -B -m unittest discover -s tests -v
+
   verify:
-    if: github.repository == 'PositionBar/homebrew-tap'
+    name: Verify direct-distribution source without publication
+    needs: offline
+    # Private source is read only for this repository's own PRs and dispatches.
+    if: >-
+      github.repository == 'PositionBar/homebrew-tap' &&
+      (github.event_name == 'workflow_dispatch' ||
+       (github.event_name == 'pull_request' &&
+        github.event.pull_request.head.repo.full_name == github.repository))
     runs-on: xcode-27
     timeout-minutes: 60
+    env:
+      # PRs verify a reviewed source; dispatches resolve source main by default.
+      PR_SOURCE_SHA: dff62195853144f89da214aa7fdc1f23690fba57
     outputs:
       source_sha: ${{ steps.source.outputs.sha }}
     steps:
@@ -41,14 +59,15 @@ jobs:
       - name: Resolve application source
         id: source
         env:
-          INPUT_SHA: ${{ inputs.source_sha }}
+          INPUT_SHA: ${{ github.event_name == 'pull_request' && env.PR_SOURCE_SHA || inputs.source_sha }}
           DISPATCH_MODE: ${{ inputs.mode }}
           RESUME_RUN_ID: ${{ inputs.resume_run_id }}
           GH_TOKEN: ${{ secrets.GH_PAT }}
         run: |
           args=()
+          [[ -z "$RESUME_RUN_ID" || -n "$INPUT_SHA" ]] || { echo 'Recovery requires original source_sha' >&2; exit 1; }
           if [[ "$DISPATCH_MODE" == release ]]; then
-            [[ "$GITHUB_REF" == refs/heads/main ]]
+            [[ "$GITHUB_EVENT_NAME" == workflow_dispatch && "$GITHUB_REF" == refs/heads/main ]] || { echo 'Publication requires a dispatch on main' >&2; exit 1; }
             if [[ -z "$RESUME_RUN_ID" ]]; then args+=(--publish); fi
           fi
           python3 -B tap/scripts/ci.py source --sha "$INPUT_SHA" "${args[@]}" >> "$GITHUB_OUTPUT"
@@ -74,7 +93,6 @@ jobs:
         env:
           SOURCE_SHA: ${{ steps.source.outputs.sha }}
         run: |
-          python3 -B -m unittest discover -s tap/tests -v
           python3 -B -m unittest discover -s source/scripts/tests -v > "$RUNNER_TEMP/python-tests.log" 2>&1
           python3 -B source/apps/macos/scripts/test-build-identity.py > "$RUNNER_TEMP/identity-tests.log" 2>&1
           python3 -B source/apps/macos/scripts/test-build-registry.py > "$RUNNER_TEMP/registry-tests.log" 2>&1
@@ -90,7 +108,11 @@ jobs:
 
   release:
     needs: verify
-    if: inputs.mode == 'release' && github.ref == 'refs/heads/main'
+    if: github.event_name == 'workflow_dispatch' && inputs.mode == 'release' && github.ref == 'refs/heads/main'
+    # All fresh and recovery publications share one writer, without blocking PR checks.
+    concurrency:
+      group: positionbar-direct-release
+      cancel-in-progress: false
     runs-on: xcode-27
     timeout-minutes: 120
     permissions:
