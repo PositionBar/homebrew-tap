@@ -42,7 +42,7 @@ class InputTests(unittest.TestCase):
         workflow = (Path(__file__).resolve().parents[1] / ".github/workflows/checks.yml").read_text()
         self.assertIn("github.event_name == 'pull_request'", workflow)
         self.assertIn("github.event.pull_request.head.repo.full_name == github.repository", workflow)
-        self.assertIn("SOURCE_SHA: 37bba86e741df5d16de36ea775e1d3aa99b817c7", workflow)
+        self.assertIn("SOURCE_SHA: 3fb09246af12ef6a5b7f4d86d5e6e98e73e57fe4", workflow)
         self.assertIn("source/scripts/unified_release.py verify", workflow)
         self.assertIn("PositionBarAppTests.UpdateConfigurationTests", workflow)
         self.assertNotIn("APP_STORE_API_PRIVATE_KEY", workflow)

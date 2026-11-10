@@ -18,7 +18,7 @@ upload TestFlight, create a Release or change the cask. The requested source
 commit must already include the paired-release implementation.
 
 For this repository's own PRs, `Tap checks` also verifies fixed reviewed source
-`37bba86e741df5d16de36ea775e1d3aa99b817c7` on `xcode-27`. It runs the actual
+`3fb09246af12ef6a5b7f4d86d5e6e98e73e57fe4` on `xcode-27`. It runs the actual
 Updater suite and both unsigned archives using only the source-read token. Fork
 PRs never receive private source. This PR verification cannot sign or publish and
 does not require merging the new manual workflow into main first. The reference
