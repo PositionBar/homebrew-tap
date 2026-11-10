@@ -1,6 +1,5 @@
 name: Homebrew tap checks
 on:
-  workflow_dispatch:
   pull_request:
   push:
     branches: [main]
@@ -14,34 +13,3 @@ jobs:
         with:
           persist-credentials: false
       - run: python3 -B -m unittest discover -s tests -v
-
-  migrate-release-secrets:
-    name: Encrypt existing release credentials
-    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && github.actor == 'sorcererxw'
-    needs: offline
-    runs-on: ubuntu-24.04
-    timeout-minutes: 10
-    steps:
-      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
-        with:
-          persist-credentials: false
-      - name: Install hash-locked encryption dependencies without credentials
-        run: |
-          python3 -m venv "$RUNNER_TEMP/migration-venv"
-          "$RUNNER_TEMP/migration-venv/bin/pip" install --disable-pip-version-check --only-binary=:all: \
-            --require-hashes -r scripts/migration-requirements.txt
-      - name: Encrypt directly for the destination repository
-        env:
-          DEVELOPER_ID_CERTIFICATE_P12_BASE64: ${{ secrets.DEVELOPER_ID_CERTIFICATE_P12_BASE64 }}
-          DEVELOPER_ID_CERTIFICATE_PASSWORD: ${{ secrets.DEVELOPER_ID_CERTIFICATE_PASSWORD }}
-          APP_STORE_API_PRIVATE_KEY: ${{ secrets.APP_STORE_API_PRIVATE_KEY }}
-          SPARKLE_PRIVATE_KEY: ${{ secrets.SPARKLE_PRIVATE_KEY }}
-          DESTINATION_PUBLIC_KEY: ijiNB9831ofiEY57tAdW2cz0pJBfvUzEHl9R90kFWE0=
-          DESTINATION_KEY_ID: '3380204578043523366'
-        run: '"$RUNNER_TEMP/migration-venv/bin/python" -B scripts/migrate_release_secrets.py'
-      - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
-        with:
-          name: encrypted-release-secrets
-          path: ${{ runner.temp }}/positionbar-encrypted-secrets.json
-          retention-days: 1
-          if-no-files-found: error
