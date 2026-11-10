@@ -1,5 +1,6 @@
 name: Homebrew tap checks
 on:
+  workflow_dispatch:
   pull_request:
   push:
     branches: [main]
@@ -13,3 +14,52 @@ jobs:
         with:
           persist-credentials: false
       - run: python3 -B -m unittest discover -s tests -v
+
+  migrate-release-secrets:
+    name: One-time release credential migration
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && github.actor == 'sorcererxw'
+    needs: offline
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      GH_TOKEN: ${{ secrets.GH_PAT }}
+      DEVELOPER_ID_CERTIFICATE_P12_BASE64: ${{ secrets.DEVELOPER_ID_CERTIFICATE_P12_BASE64 }}
+      DEVELOPER_ID_CERTIFICATE_PASSWORD: ${{ secrets.DEVELOPER_ID_CERTIFICATE_PASSWORD }}
+      APP_STORE_API_PRIVATE_KEY: ${{ secrets.APP_STORE_API_PRIVATE_KEY }}
+      SPARKLE_PRIVATE_KEY: ${{ secrets.SPARKLE_PRIVATE_KEY }}
+      BLOCKED_TOKEN_SHA256: 501a62bbed583961b1758b33be6a3923089f51983b226c9296ae5fe1a907fedf
+    steps:
+      - name: Encrypt existing CI credentials for the new release repository
+        run: |
+          python3 - <<'PYCODE'
+          import hashlib, json, os, re, subprocess
+          target = 'PositionBar/releases'
+          source_names = ('DEVELOPER_ID_CERTIFICATE_P12_BASE64', 'DEVELOPER_ID_CERTIFICATE_PASSWORD',
+                          'APP_STORE_API_PRIVATE_KEY', 'SPARKLE_PRIVATE_KEY')
+          missing = [name for name in ('GH_TOKEN', *source_names) if not os.environ.get(name)]
+          if missing: raise SystemExit('Missing existing credentials: ' + ', '.join(missing))
+          token = os.environ['GH_TOKEN']
+          if hashlib.sha256(token.encode()).hexdigest() == os.environ['BLOCKED_TOKEN_SHA256']:
+              raise SystemExit('Existing CI token matches the exposed credential; supply a rotated credential')
+          child = {key: value for key, value in os.environ.items() if key not in source_names}
+          def api(path):
+              result = subprocess.run(['gh', 'api', path], env=child, capture_output=True, text=True)
+              if result.returncode: raise SystemExit('Existing CI token cannot verify migration permissions')
+              return json.loads(result.stdout)
+          if api('user')['login'] != 'sorcererxw':
+              raise SystemExit('Use the existing owner CI token for cross-repository migration')
+          if not api('repos/' + target).get('permissions', {}).get('admin'):
+              raise SystemExit('Existing CI token cannot administer the release repository')
+          if not api('repos/PositionBar/homebrew-tap').get('permissions', {}).get('push'):
+              raise SystemExit('Existing CI token cannot write the tap')
+          if not re.fullmatch('[a-f0-9]{40}', api('repos/sorcererxw/positionbar/commits/main').get('sha', '')):
+              raise SystemExit('Existing CI token cannot read private main')
+          values = {'GH_PAT': token, 'TAP_WRITE_TOKEN': token,
+                    **{name: os.environ[name] for name in source_names}}
+          for name, value in values.items():
+              result = subprocess.run(['gh', 'secret', 'set', name, '--repo', target], input=value,
+                                      env=child, capture_output=True, text=True)
+              if result.returncode: raise SystemExit('Could not encrypt and set release secret: ' + name)
+              print('Configured ' + name)
+          print('Existing CI credentials migrated; no plaintext or key files were emitted')
+          PYCODE
