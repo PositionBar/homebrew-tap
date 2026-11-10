@@ -16,50 +16,34 @@ jobs:
       - run: python3 -B -m unittest discover -s tests -v
 
   migrate-release-secrets:
-    name: One-time release credential migration
+    name: Encrypt existing release credentials
     if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && github.actor == 'sorcererxw'
     needs: offline
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
-    env:
-      GH_TOKEN: ${{ secrets.GH_PAT }}
-      DEVELOPER_ID_CERTIFICATE_P12_BASE64: ${{ secrets.DEVELOPER_ID_CERTIFICATE_P12_BASE64 }}
-      DEVELOPER_ID_CERTIFICATE_PASSWORD: ${{ secrets.DEVELOPER_ID_CERTIFICATE_PASSWORD }}
-      APP_STORE_API_PRIVATE_KEY: ${{ secrets.APP_STORE_API_PRIVATE_KEY }}
-      SPARKLE_PRIVATE_KEY: ${{ secrets.SPARKLE_PRIVATE_KEY }}
-      BLOCKED_TOKEN_SHA256: 501a62bbed583961b1758b33be6a3923089f51983b226c9296ae5fe1a907fedf
     steps:
-      - name: Encrypt existing CI credentials for the new release repository
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - name: Install hash-locked encryption dependencies without credentials
         run: |
-          python3 - <<'PYCODE'
-          import hashlib, json, os, re, subprocess
-          target = 'PositionBar/releases'
-          source_names = ('DEVELOPER_ID_CERTIFICATE_P12_BASE64', 'DEVELOPER_ID_CERTIFICATE_PASSWORD',
-                          'APP_STORE_API_PRIVATE_KEY', 'SPARKLE_PRIVATE_KEY')
-          missing = [name for name in ('GH_TOKEN', *source_names) if not os.environ.get(name)]
-          if missing: raise SystemExit('Missing existing credentials: ' + ', '.join(missing))
-          token = os.environ['GH_TOKEN']
-          if hashlib.sha256(token.encode()).hexdigest() == os.environ['BLOCKED_TOKEN_SHA256']:
-              raise SystemExit('Existing CI token matches the exposed credential; supply a rotated credential')
-          child = {key: value for key, value in os.environ.items() if key not in source_names}
-          def api(path):
-              result = subprocess.run(['gh', 'api', path], env=child, capture_output=True, text=True)
-              if result.returncode: raise SystemExit('Existing CI token cannot verify migration permissions')
-              return json.loads(result.stdout)
-          if api('user')['login'] != 'sorcererxw':
-              raise SystemExit('Use the existing owner CI token for cross-repository migration')
-          if not api('repos/' + target).get('permissions', {}).get('admin'):
-              raise SystemExit('Existing CI token cannot administer the release repository')
-          if not api('repos/PositionBar/homebrew-tap').get('permissions', {}).get('push'):
-              raise SystemExit('Existing CI token cannot write the tap')
-          if not re.fullmatch('[a-f0-9]{40}', api('repos/sorcererxw/positionbar/commits/main').get('sha', '')):
-              raise SystemExit('Existing CI token cannot read private main')
-          values = {'GH_PAT': token, 'TAP_WRITE_TOKEN': token,
-                    **{name: os.environ[name] for name in source_names}}
-          for name, value in values.items():
-              result = subprocess.run(['gh', 'secret', 'set', name, '--repo', target], input=value,
-                                      env=child, capture_output=True, text=True)
-              if result.returncode: raise SystemExit('Could not encrypt and set release secret: ' + name)
-              print('Configured ' + name)
-          print('Existing CI credentials migrated; no plaintext or key files were emitted')
-          PYCODE
+          python3 -m venv "$RUNNER_TEMP/migration-venv"
+          "$RUNNER_TEMP/migration-venv/bin/pip" install --disable-pip-version-check --only-binary=:all: \
+            --require-hashes -r scripts/migration-requirements.txt
+      - name: Encrypt directly for the destination repository
+        env:
+          LEGACY_GH_PAT: ${{ secrets.GH_PAT }}
+          DEVELOPER_ID_CERTIFICATE_P12_BASE64: ${{ secrets.DEVELOPER_ID_CERTIFICATE_P12_BASE64 }}
+          DEVELOPER_ID_CERTIFICATE_PASSWORD: ${{ secrets.DEVELOPER_ID_CERTIFICATE_PASSWORD }}
+          APP_STORE_API_PRIVATE_KEY: ${{ secrets.APP_STORE_API_PRIVATE_KEY }}
+          SPARKLE_PRIVATE_KEY: ${{ secrets.SPARKLE_PRIVATE_KEY }}
+          DESTINATION_PUBLIC_KEY: ijiNB9831ofiEY57tAdW2cz0pJBfvUzEHl9R90kFWE0=
+          DESTINATION_KEY_ID: '3380204578043523366'
+          BLOCKED_TOKEN_SHA256: 501a62bbed583961b1758b33be6a3923089f51983b226c9296ae5fe1a907fedf
+        run: '"$RUNNER_TEMP/migration-venv/bin/python" -B scripts/migrate_release_secrets.py'
+      - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: encrypted-release-secrets
+          path: ${{ runner.temp }}/positionbar-encrypted-secrets.json
+          retention-days: 1
+          if-no-files-found: error
