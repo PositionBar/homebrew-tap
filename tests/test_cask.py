@@ -30,7 +30,7 @@ def receipt(version="0.1.0", build=1015, source="a" * 40, sha="b" * 64):
         "registryStatus": "succeeded",
         "artifact": {
             "name": name,
-            "url": f"https://github.com/PositionBar/homebrew-tap/releases/download/{tag}/{name}",
+            "url": f"https://github.com/PositionBar/releases/releases/download/{tag}/{name}",
             "sha256": sha,
             "length": 123,
             "appName": "PositionBar.app",
@@ -52,10 +52,10 @@ def receipt(version="0.1.0", build=1015, source="a" * 40, sha="b" * 64):
             "sparklePublicEDKey": base64.b64encode(b"k" * 32).decode(),
         },
         "githubRelease": {
-            "repository": "PositionBar/homebrew-tap",
+            "repository": "PositionBar/releases",
             "tag": tag,
             "status": "published",
-            "appcast": f"https://github.com/PositionBar/homebrew-tap/releases/download/{tag}/appcast.xml",
+            "appcast": f"https://github.com/PositionBar/releases/releases/download/{tag}/appcast.xml",
         },
         "tap": {"repository": "PositionBar/homebrew-tap", "status": "pending"},
     }

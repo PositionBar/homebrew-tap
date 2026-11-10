@@ -22,7 +22,7 @@ import urllib.request
 ROOT = Path(__file__).resolve().parents[1]
 CASK = ROOT / "Casks/positionbar.rb"
 RELEASES = ROOT / "Releases"
-SPARKLE_FEED_URL = "https://github.com/PositionBar/homebrew-tap/releases/latest/download/appcast.xml"
+SPARKLE_FEED_URL = "https://github.com/PositionBar/releases/releases/latest/download/appcast.xml"
 
 
 def require(condition, message):
@@ -103,16 +103,16 @@ def load_receipt(path):
     require(re.fullmatch(r"[0-9]+\.[0-9]+\.[0-9]+", minimum), "Invalid minimum macOS version")
     require(artifact.get("teamID") == "TX6HZR5RB7", "Cask Team ID changed")
     release = receipt.get("githubRelease", {})
-    require(release.get("repository") == "PositionBar/homebrew-tap", "Unexpected cask release repository")
+    require(release.get("repository") == "PositionBar/releases", "Unexpected cask release repository")
     tag = release.get("tag", "")
     require(re.fullmatch(r"positionbar-[0-9]+\.[0-9]+\.[0-9]+-[0-9]+", tag), "Invalid cask release tag")
     require(tag == f"positionbar-{version}-{build}", "Cask release tag differs from version/build")
     require(
-        release.get("appcast") == f"https://github.com/PositionBar/homebrew-tap/releases/download/{tag}/appcast.xml",
+        release.get("appcast") == f"https://github.com/PositionBar/releases/releases/download/{tag}/appcast.xml",
         "Appcast URL does not match its GitHub release",
     )
     parsed = urllib.parse.urlparse(artifact["url"])
-    expected_path = f"/PositionBar/homebrew-tap/releases/download/{tag}/{artifact['name']}"
+    expected_path = f"/PositionBar/releases/releases/download/{tag}/{artifact['name']}"
     require(
         parsed.scheme == "https"
         and parsed.hostname == "github.com"

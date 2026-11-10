@@ -1,87 +1,19 @@
 # PositionBar Homebrew tap
 
-Public automation and release assets for PositionBar's notarized direct distribution.
-An installable cask exists only after a real signed release has passed verification.
-TestFlight is not part of the current publication path.
+安装已正式发布的 PositionBar：
 
 ```sh
 brew install --cask positionbar/tap/positionbar
 ```
 
-The website links to this repository's [Releases](https://github.com/PositionBar/homebrew-tap/releases).
-The same immutable DMG is used by downloads, Sparkle and the cask.
+安装包、Sparkle 更新源、版本与 changelog 统一在 [PositionBar/releases](https://github.com/PositionBar/releases) 管理。只有该仓库中经过审批的发布 PR 合并后才会构建发布。本 tap 的 `check.yml` 仅运行离线校验，不签名、不公证、不启动发布。
 
-## Workflow
+`Casks/positionbar.rb` 只由真实、公开可下载且已验证的 Universal DMG 生成。首次发布前不会提交占位 cask 或虚构 SHA。macOS 最低版本来自实际包中声明，正式包必须包含 arm64 与 x86_64。
 
-`PositionBar direct release` (`.github/workflows/release.yml`) runs on GitHub-hosted
-`xcode-27` runners, with offline tap tests on Ubuntu. This single workflow handles
-automatic checks and manual publication. Pushes and pull requests never publish.
+发布中心使用 `scripts/cask.py publish --receipt /absolute/homebrew.json --execute`：重新下载 GitHub Release 的精确 DMG，核对 SHA-256、长度、Apple Team / Bundle ID、Developer ID 签名、公证/staple、Gatekeeper、Sparkle 公钥与固定 feed，再写入 cask 和 `Releases/<tag>.json` 的验证记录。资产 URL 必须属于 `PositionBar/releases` 的同一 tag；不可把测试 fixture 当正式发行。
 
-- `source_sha`: optional expected application commit from the private `sorcererxw/positionbar` repository; defaults to its current main. Recovery requires the original full SHA.
-- `mode`: `verify` by default; `release` explicitly signs, notarizes and publishes.
-- `resume_run_id`: optional earlier direct-release run from this tap's main workflow.
+不加 `--execute` 仅显示 dry-run；不下载、不写文件、不提交或推送。发布中心提供独立的 `TAP_WRITE_TOKEN`，本仓库不再使用 Apple 或 Sparkle 私钥构建 App。原本保存的 Secrets 不会被自动迁移或删除。
 
-Fresh publication requires both this workflow and application source to be on main.
-Manual or API callers select `mode=release`; no source SHA is needed for a fresh
-release. The workflow resolves main once, pins that exact commit through the jobs,
-and checks it again before publication. Default `mode=verify` only checks it.
-Verification checks the pinned source, locked dependencies, offline regressions,
-executed Updater XCTest cases and one unsigned Universal direct-distribution archive. It
-allocates no global Build ID and uses no signing or publication credentials.
-The PR check pins the exact reviewed source as `PR_SOURCE_SHA` in `release.yml`; update that SHA
-alongside source changes before treating cloud verification as current evidence.
+commit/push 的不确定结果通过 origin/main 与已生成 cask/receipt 读回恢复；不覆盖不同源码或字节的发行记录，不强推。App 与 DMG、appcast 与 notes 的签名由发布中心验证，本 tap 复验包本身并保留这些事实。签名身份、Keychain service 与权限不因 Homebrew 分发改变。
 
-Actual release reserves a new global Build ID with variant `developer-id-release`,
-keeps Team `TX6HZR5RB7` / Bundle ID `com.positionbar.app`, signs with Developer ID
-Application and hardened runtime. The App targets macOS 26+ and must contain both arm64 and x86_64. It notarizes/staples the App, creates an APFS/LZFSE DMG with an Applications link, signs/notarizes/staples the DMG, then verifies both layers with Gatekeeper and a read-only, no-auto-open mount.
-The receipt fixes source, version, Build ID, DMG SHA-256/length, architectures,
-entitlements, Apple identity and Sparkle feed/key. No TestFlight receipt is required.
-The cask publisher downloads the public bytes and verifies those facts again.
-
-Sparkle's signed canonical feed is:
-`https://github.com/PositionBar/homebrew-tap/releases/latest/download/appcast.xml`.
-Assets are immutable; missing assets can be added, existing bytes cannot change.
-Latest promotion and cask updates refuse to roll back a newer Build ID.
-
-## Existing repository credentials
-
-| Input | Purpose |
-| --- | --- |
-| Secret `GH_PAT` | Read the fixed private source; checkout does not retain it |
-| Secret `DEVELOPER_ID_CERTIFICATE_P12_BASE64` | Existing Developer ID certificate and private key on an ephemeral signing keychain |
-| Secret `DEVELOPER_ID_CERTIFICATE_PASSWORD` | Unlock that P12 |
-| Secret `APP_STORE_API_PRIVATE_KEY` | Existing Apple API P8, used by notarytool |
-| Variables `APP_STORE_API_KEY_ID`, `APP_STORE_API_ISSUER_ID` | Identify that notarization API key |
-| Secret `SPARKLE_PRIVATE_KEY` | Sign the DMG, appcast and release notes with the existing key |
-| Automatic `github.token` | Public release assets, retained artifacts and cask push |
-
-App Store application/installer certificates and provisioning profiles are not
-read by this workflow. Existing stored credentials need not be deleted. Secret
-presence does not prove signing, notarization or push permissions work. The local
-TestFlight scheduler must be stopped before enabling this workflow as the writer.
-
-## Recovery
-
-`release-state` saves identity before signing. `homebrew-state` saves only the
-identity, non-secret receipt, exact notarized DMG and signed appcast/notes for 30
-days. No private source, signing material, Keychain, intermediate archive, dSYM,
-package cache or build log is uploaded to this public repository.
-
-Dispatch again with the original source SHA and `resume_run_id`. Recovery accepts
-only this tap's main direct-release workflow. A checkpoint without a verified DMG
-cannot continue compiling: start a new attempt and get a new Build ID. Once DMG
-facts are saved, restore the exact bytes or retrieve the original URL; never
-rebuild a replacement under the old identity. A job rerun with missing state
-fails closed. Legacy TestFlight checkpoints are not accepted.
-
-`python3 -B scripts/cask.py publish --receipt /absolute/homebrew.json` is a dry run.
-`--execute` explicitly verifies the download and writes/pushes the cask plus its
-immutable release record. Git responses are read back; retries preserve their own
-staged candidate or local commit, never force-push.
-
-```sh
-python3 -B -m unittest discover -s tests -v
-```
-
-These tests are offline and use synthetic repositories. Their success does not
-prove Apple notarization, public availability, installation or native interaction.
+本地验证：`python3 -B -m unittest discover -s tests -v`。测试使用合成包和本地临时 Git 仓库，不代表 Apple 公证、真实安装或 Sparkle 升级已验收。
