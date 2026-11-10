@@ -32,14 +32,12 @@ jobs:
             --require-hashes -r scripts/migration-requirements.txt
       - name: Encrypt directly for the destination repository
         env:
-          LEGACY_GH_PAT: ${{ secrets.GH_PAT }}
           DEVELOPER_ID_CERTIFICATE_P12_BASE64: ${{ secrets.DEVELOPER_ID_CERTIFICATE_P12_BASE64 }}
           DEVELOPER_ID_CERTIFICATE_PASSWORD: ${{ secrets.DEVELOPER_ID_CERTIFICATE_PASSWORD }}
           APP_STORE_API_PRIVATE_KEY: ${{ secrets.APP_STORE_API_PRIVATE_KEY }}
           SPARKLE_PRIVATE_KEY: ${{ secrets.SPARKLE_PRIVATE_KEY }}
           DESTINATION_PUBLIC_KEY: ijiNB9831ofiEY57tAdW2cz0pJBfvUzEHl9R90kFWE0=
           DESTINATION_KEY_ID: '3380204578043523366'
-          BLOCKED_TOKEN_SHA256: 501a62bbed583961b1758b33be6a3923089f51983b226c9296ae5fe1a907fedf
         run: '"$RUNNER_TEMP/migration-venv/bin/python" -B scripts/migrate_release_secrets.py'
       - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
         with:
