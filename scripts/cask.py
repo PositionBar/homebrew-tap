@@ -1,11 +1,15 @@
 #!/usr/bin/env python3
-"""Verify a paired PositionBar cask release and publish its cask locally."""
+"""Verify a notarized PositionBar release and publish its Homebrew cask."""
 
 import argparse
+import base64
+import binascii
 import hashlib
 import json
 import plistlib
 from pathlib import Path
+from contextlib import contextmanager
+import os
 import re
 import shutil
 import subprocess
@@ -18,7 +22,7 @@ import urllib.request
 ROOT = Path(__file__).resolve().parents[1]
 CASK = ROOT / "Casks/positionbar.rb"
 RELEASES = ROOT / "Releases"
-ACCEPTED = "upload_accepted_processing_pending"
+SPARKLE_FEED_URL = "https://github.com/PositionBar/releases/releases/latest/download/appcast.xml"
 
 
 def require(condition, message):
@@ -58,10 +62,7 @@ def load_receipt(path):
     build = receipt.get("build")
     require(re.fullmatch(r"[0-9]+\.[0-9]+\.[0-9]+", version), "Invalid marketing version")
     require(type(build) is int and build > 0, "Invalid cask build")
-    testflight = receipt.get("testFlight", {})
-    require(testflight.get("status") == ACCEPTED, "TestFlight has not accepted this build")
-    require(testflight.get("build") == str(build), "TestFlight build differs from cask build")
-    require(str(testflight.get("buildID")) == str(build), "TestFlight and cask build IDs differ")
+    require(receipt.get("registryStatus") == "succeeded", "Global build has not completed")
     artifact = receipt.get("artifact")
     require(isinstance(artifact, dict), "Cask artifact receipt is missing")
     for key in (
@@ -77,29 +78,41 @@ def load_receipt(path):
         "entitlements",
     ):
         require(key in artifact, "Cask artifact field is missing: " + key)
+    require(artifact["name"] == f"PositionBar-{version}-{build}.dmg", "Expected the release DMG")
     require(artifact["bundleIdentifier"] == "com.positionbar.app", "Bundle identifier changed")
     require(artifact["appName"] == "PositionBar.app", "App bundle name changed")
     require(artifact.get("developerIDVerified") is True, "Developer ID was not verified")
     require(artifact.get("notarizationStatus") == "Accepted", "Notarization was not accepted")
     require(artifact.get("stapled") is True, "Notarization ticket was not stapled")
     require(artifact.get("gatekeeperVerified") is True, "Gatekeeper was not verified")
-    require(artifact.get("sparkleEmbedded") is False, "Cask artifact unexpectedly embeds Sparkle")
+    require(artifact.get("sparkleEmbedded") is True, "Cask artifact must embed Sparkle")
+    require(artifact.get("sparkleFeedURL") == SPARKLE_FEED_URL, "Cask Sparkle feed URL differs")
+    try:
+        public_key = base64.b64decode(artifact.get("sparklePublicEDKey", ""), validate=True)
+    except (ValueError, TypeError, binascii.Error) as error:
+        raise ValueError("Invalid Sparkle public key") from error
+    require(len(public_key) == 32, "Invalid Sparkle public key")
     require(re.fullmatch(r"[a-f0-9]{64}", artifact.get("sha256", "")), "Invalid cask SHA-256")
     require(type(artifact.get("length")) is int and artifact["length"] > 0, "Invalid cask length")
     architectures = artifact.get("architectures")
     require(
-        architectures in (["arm64"], ["x86_64"], ["arm64", "x86_64"]),
-        "Unsupported cask architectures",
+        architectures == ["arm64", "x86_64"],
+        "Expected both Universal architectures",
     )
     minimum = artifact.get("minimumSystemVersion", "")
     require(re.fullmatch(r"[0-9]+\.[0-9]+\.[0-9]+", minimum), "Invalid minimum macOS version")
     require(artifact.get("teamID") == "TX6HZR5RB7", "Cask Team ID changed")
     release = receipt.get("githubRelease", {})
-    require(release.get("repository") == "PositionBar/homebrew-tap", "Unexpected cask release repository")
+    require(release.get("repository") == "PositionBar/releases", "Unexpected cask release repository")
     tag = release.get("tag", "")
     require(re.fullmatch(r"positionbar-[0-9]+\.[0-9]+\.[0-9]+-[0-9]+", tag), "Invalid cask release tag")
+    require(tag == f"positionbar-{version}-{build}", "Cask release tag differs from version/build")
+    require(
+        release.get("appcast") == f"https://github.com/PositionBar/releases/releases/download/{tag}/appcast.xml",
+        "Appcast URL does not match its GitHub release",
+    )
     parsed = urllib.parse.urlparse(artifact["url"])
-    expected_path = f"/PositionBar/homebrew-tap/releases/download/{tag}/{artifact['name']}"
+    expected_path = f"/PositionBar/releases/releases/download/{tag}/{artifact['name']}"
     require(
         parsed.scheme == "https"
         and parsed.hostname == "github.com"
@@ -135,22 +148,35 @@ def download(url, destination, expected_sha, expected_length):
     require(value.hexdigest() == expected_sha, "Downloaded cask SHA-256 differs")
 
 
+@contextmanager
+def mounted_dmg(archive):
+    with tempfile.TemporaryDirectory(prefix="positionbar-cask-") as temporary:
+        mount = Path(temporary) / "volume"
+        mount.mkdir()
+        run("hdiutil", "attach", archive, "-readonly", "-nobrowse", "-noautoopen", "-mountpoint", mount)
+        try:
+            yield mount
+        finally:
+            run("hdiutil", "detach", mount)
+
+
 def verify_artifact(archive, receipt):
     artifact = receipt["artifact"]
     require(digest(archive) == artifact["sha256"], "Cask file SHA-256 differs")
     require(archive.stat().st_size == artifact["length"], "Cask file length differs")
-    with tempfile.TemporaryDirectory(prefix="positionbar-cask-") as temporary:
-        extracted = Path(temporary)
-        run("ditto", "-x", "-k", archive, extracted)
-        visible = [
-            path
-            for path in extracted.iterdir()
-            if path.name not in ("__MACOSX", ".DS_Store")
-        ]
-        require(len(visible) == 1 and visible[0].name == artifact["appName"], "Cask App bundle changed")
-        app = visible[0]
+    run("codesign", "--verify", "--strict", "-R",
+        '=anchor apple generic and certificate leaf[field.1.2.840.113635.100.6.1.13] exists '
+        f'and certificate leaf[subject.OU] = "{artifact["teamID"]}"', archive)
+    run("xcrun", "stapler", "validate", archive)
+    run("spctl", "--assess", "--type", "open", "--context", "context:primary-signature", archive)
+    with mounted_dmg(archive) as extracted:
+        visible = {path.name for path in extracted.iterdir() if not path.name.startswith(".")}
+        require(visible == {artifact["appName"], "Applications"}, "DMG contents differ")
+        require((extracted / "Applications").is_symlink() and os.readlink(extracted / "Applications") == "/Applications",
+                "DMG Applications link differs")
+        app = extracted / artifact["appName"]
         require(app.is_dir(), "Cask artifact does not contain an App")
-        require(not (app / "Contents/Frameworks/Sparkle.framework").exists(), "Cask App embeds Sparkle")
+        require((app / "Contents/Frameworks/Sparkle.framework").is_dir(), "Cask App is missing Sparkle")
         require(
             not (app / "Contents/embedded.provisionprofile").exists(),
             "Cask App embeds an App Store profile",
@@ -181,8 +207,9 @@ def verify_artifact(archive, receipt):
         parts = minimum.split(".")
         normalized = ".".join(parts + ["0"] * max(0, 3 - len(parts)))
         require(normalized == artifact["minimumSystemVersion"], "Cask minimum macOS differs")
-        require(info.get("PBUpdatesEnabled") == "NO", "Cask App enables in-app updates")
-        require(not info.get("SUFeedURL") and not info.get("SUPublicEDKey"), "Cask App configures Sparkle")
+        require(info.get("PBUpdatesEnabled") == "YES", "Cask App disables in-app updates")
+        require(info.get("SUFeedURL") == artifact["sparkleFeedURL"], "Cask App Sparkle feed differs")
+        require(info.get("SUPublicEDKey") == artifact["sparklePublicEDKey"], "Cask App Sparkle key differs")
         entitlements = plistlib.loads(
             run("codesign", "-d", "--entitlements", ":-", app, capture=True).encode()
         )
@@ -215,7 +242,6 @@ def homebrew_macos_symbol(version):
 
 def render_cask(receipt, minimum_symbol):
     artifact = receipt["artifact"]
-    architectures = tuple(artifact["architectures"])
     lines = [
         'cask "positionbar" do',
         f'  version "{receipt["version"]},{receipt["build"]}"',
@@ -226,10 +252,9 @@ def render_cask(receipt, minimum_symbol):
         '  desc "Read-only multi-account position monitor"',
         '  homepage "https://positionbar.com/"',
         "",
+        "  auto_updates true",
         f"  depends_on macos: :{minimum_symbol}",
     ]
-    if len(architectures) == 1:
-        lines.append(f"  depends_on arch: :{architectures[0]}")
     lines.extend(["", f'  app "{artifact["appName"]}"', "end", ""])
     return "\n".join(lines)
 
@@ -253,6 +278,8 @@ def release_record(receipt):
             "stapled",
             "gatekeeperVerified",
             "sparkleEmbedded",
+            "sparkleFeedURL",
+            "sparklePublicEDKey",
         )
     }
     return {
@@ -260,8 +287,9 @@ def release_record(receipt):
         "source": receipt["source"],
         "version": receipt["version"],
         "build": receipt["build"],
-        "testFlight": receipt["testFlight"],
+        "registryStatus": receipt["registryStatus"],
         "artifact": artifact,
+        "githubRelease": receipt["githubRelease"],
         "tapRepository": "PositionBar/homebrew-tap",
     }
 
@@ -317,10 +345,11 @@ def write_record(path, record):
             "Existing release record version/build differs",
         )
         require(
-            current.get("artifact", {}).get("sha256") == record["artifact"]["sha256"]
-            and current.get("artifact", {}).get("url") == record["artifact"]["url"],
+            current.get("artifact") == record["artifact"],
             "Existing release record artifact differs",
         )
+        require(current.get("githubRelease") == record["githubRelease"], "Existing release record appcast differs")
+        require(current.get("registryStatus") == record["registryStatus"], "Existing release record build status differs")
         if path.read_text() == encoded:
             return False
     path.parent.mkdir(parents=True, exist_ok=True)

@@ -1,101 +1,19 @@
 # PositionBar Homebrew tap
 
-Homebrew Casks for [PositionBar](https://positionbar.com/).
-
-## Publication model
-
-This repository is the public Release and cask target for PositionBar's local
-release pipeline. Each accepted TestFlight build is paired with a separately
-built Developer ID ZIP from the same source SHA, marketing version, build, and
-Build ID. The ZIP is notarized, stapled, checked with Gatekeeper, and published
-under `PositionBar/homebrew-tap`, not the PositionBar source repository.
-
-The cask app does not embed Sparkle, an App Store profile, or in-app update
-configuration. A cask is eligible only after the matching TestFlight upload has
-the status `upload_accepted_processing_pending`.
-
-The source pipeline writes a `homebrew.json` receipt containing the accepted
-TestFlight facts, exact artifact SHA-256 and length, notarization results, and
-public GitHub Release URL. Do not hand-edit or substitute that receipt: the tap
-uses it to reject mismatched source revisions, versions, builds, Build IDs,
-artifact bytes, architectures, entitlements, or download URLs.
-
-There is no `prepared.json` stage and no source release-catalog gate. This tap
-does not build, sign, notarize, upload TestFlight, or rebuild the App.
-
-## Check
-
-Review the public artifact and rendered cask facts without changing the tap:
+安装已正式发布的 PositionBar：
 
 ```sh
-python3 -B scripts/cask.py check \
-  --receipt /absolute/path/to/homebrew/homebrew.json \
-  --result /absolute/path/to/cask-result.json
+brew install --cask positionbar/tap/positionbar
 ```
 
-`check` downloads the exact public Release asset, verifies SHA-256 and length,
-then checks the extracted App's version, build, source revision, Build ID,
-architectures, Developer ID signature, notarization, Gatekeeper result, and
-entitlements. It reports a candidate only; it does not write, commit, or push.
+安装包、Sparkle 更新源、版本与 changelog 统一在 [PositionBar/releases](https://github.com/PositionBar/releases) 管理。只有该仓库中经过审批的发布 PR 合并后才会构建发布。本 tap 的 `check.yml` 仅运行离线校验，不签名、不公证、不启动发布。
 
-## Publish
+`Casks/positionbar.rb` 只由真实、公开可下载且已验证的 Universal DMG 生成。首次发布前不会提交占位 cask 或虚构 SHA。macOS 最低版本来自实际包中声明，正式包必须包含 arm64 与 x86_64。
 
-`publish` is a dry-run unless `--execute` is present:
+发布中心使用 `scripts/cask.py publish --receipt /absolute/homebrew.json --execute`：重新下载 GitHub Release 的精确 DMG，核对 SHA-256、长度、Apple Team / Bundle ID、Developer ID 签名、公证/staple、Gatekeeper、Sparkle 公钥与固定 feed，再写入 cask 和 `Releases/<tag>.json` 的验证记录。资产 URL 必须属于 `PositionBar/releases` 的同一 tag；不可把测试 fixture 当正式发行。
 
-```sh
-python3 -B scripts/cask.py publish \
-  --receipt /absolute/path/to/homebrew/homebrew.json
-```
+不加 `--execute` 仅显示 dry-run；不下载、不写文件、不提交或推送。发布中心提供独立的 `TAP_WRITE_TOKEN`，本仓库不再使用 Apple 或 Sparkle 私钥构建 App。原本保存的 Secrets 不会被自动迁移或删除。
 
-After reviewing the dry-run:
+commit/push 的不确定结果通过 origin/main 与已生成 cask/receipt 读回恢复；不覆盖不同源码或字节的发行记录，不强推。App 与 DMG、appcast 与 notes 的签名由发布中心验证，本 tap 复验包本身并保留这些事实。签名身份、Keychain service 与权限不因 Homebrew 分发改变。
 
-```sh
-python3 -B scripts/cask.py publish \
-  --receipt /absolute/path/to/homebrew/homebrew.json \
-  --execute \
-  --result /absolute/path/to/cask-result.json
-```
-
-The executing command re-downloads and verifies the exact artifact, renders
-`Casks/positionbar.rb`, writes the immutable pairing record
-`Releases/positionbar-<version>-<build>.json`, runs `brew style --cask`, and
-commits only those two files. It pushes tap `main` and verifies that the remote
-tip equals the local commit.
-
-Machine-readable JSON goes to stdout and, when requested, `--result`; command
-logs go to stderr. The source pipeline uses this result file instead of parsing
-mixed output.
-
-`already published` means the generated cask and record already match local and
-remote `main`. If commit or push is interrupted after the local commit exists,
-rerunning the same `--execute` command verifies and reuses that exact commit
-without creating a duplicate. A push or remote read-back failure is reported as
-uncertain and must be checked against tap `main`; do not force-push.
-
-Homebrew requires an installed and explicitly trusted tap before `brew audit`
-will load a cask by name. This repository does not change Homebrew trust or
-security settings. After an authorized publication, an online audit can be run
-separately:
-
-```sh
-brew audit --cask --online positionbar/tap/positionbar
-```
-
-## Offline tests
-
-```sh
-python3 -B -m unittest discover -s tests -p 'test_cask.py' -v
-```
-
-The tests use a synthetic universal App bundle, a temporary tap Git remote, and
-mocked Apple/GitHub verification boundaries. They cover TestFlight pairing,
-artifact download and signature validation, cask rendering and immutability,
-release-record identity, dry-run behavior, commit/push recovery, and separation
-of machine output from command logs.
-
-These are offline checks. They do not prove that a real Developer ID build,
-notarization, public Release download, tap push, `brew style`, `brew audit`, or
-`brew install` succeeded. Real acceptance requires a new paired release round.
-
-There is intentionally no GitHub Actions workflow. Publication runs from the
-local Mac with existing credentials and explicit execution.
+本地验证：`python3 -B -m unittest discover -s tests -v`。测试使用合成包和本地临时 Git 仓库，不代表 Apple 公证、真实安装或 Sparkle 升级已验收。
