@@ -36,13 +36,13 @@ def recovery_artifact(run_id):
             and run.get("head_branch") == "main"
             and run.get("event") == "workflow_dispatch"
             and run.get("path") == ".github/workflows/release.yml",
-            "Recovery must come from this tap's main paired-release workflow")
+            "Recovery must come from this tap's main direct-release workflow")
     artifacts = github(f"repos/{REPOSITORY}/actions/runs/{run_id}/artifacts?per_page=100")
     live = {item.get("name") for item in artifacts.get("artifacts", []) if not item.get("expired")}
-    for name in ("homebrew-state", "testflight-state"):
+    for name in ("homebrew-state", "release-state"):
         if name in live:
             return name
-    raise ValueError("No retained checkpoint is available; do not repeat the TestFlight upload")
+    raise ValueError("No retained checkpoint is available; start a new release attempt")
 
 
 def verify_updater_report(path):

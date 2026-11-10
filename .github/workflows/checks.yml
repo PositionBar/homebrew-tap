@@ -15,7 +15,7 @@ jobs:
       - run: python3 -B -m unittest discover -s tests -v
 
   source-verify:
-    name: Verify paired source without publication
+    name: Verify direct-distribution source without publication
     # Private source is read only for this repository's own PRs, never forks.
     if: >-
       github.event_name == 'pull_request' &&
@@ -25,7 +25,7 @@ jobs:
     timeout-minutes: 60
     env:
       # Fixed reviewed integration source; publication still takes an explicit SHA.
-      SOURCE_SHA: 3fb09246af12ef6a5b7f4d86d5e6e98e73e57fe4
+      SOURCE_SHA: dd26662148d890dccb416c9a499bbc143188c484
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
@@ -58,11 +58,11 @@ jobs:
             > "$RUNNER_TEMP/updater-tests.log" 2>&1
           python3 -B source/scripts/check test-report "$RUNNER_TEMP/updater-tests.log" > "$RUNNER_TEMP/updater-tests.json"
           python3 -B tap/scripts/ci.py tests --report "$RUNNER_TEMP/updater-tests.json"
-      - name: Verify both unsigned distribution archives
+      - name: Verify unsigned direct-distribution archive
         run: |
           if ! python3 -B source/scripts/unified_release.py verify --source "$SOURCE_SHA" \
             --work "$RUNNER_TEMP/unsigned-verification" > "$RUNNER_TEMP/unsigned-archives.log" 2>&1; then
-            grep '^Paired release failed:' "$RUNNER_TEMP/unsigned-archives.log" | tail -1 || true
+            grep '^Direct release failed:' "$RUNNER_TEMP/unsigned-archives.log" | tail -1 || true
             exit 1
           fi
-          echo "Source $SOURCE_SHA passed offline regressions, Updater tests and both unsigned archives. No signing, notarization, global Build ID allocation or publication ran." >> "$GITHUB_STEP_SUMMARY"
+          echo "Source $SOURCE_SHA passed offline regressions, Updater tests and the unsigned archive. No signing, notarization, global Build ID allocation or publication ran." >> "$GITHUB_STEP_SUMMARY"

@@ -36,19 +36,19 @@ class InputTests(unittest.TestCase):
     def test_recovery_selects_latest_stage_from_correct_same_tap_workflow(self):
         run = {"repository": {"full_name": ci.REPOSITORY}, "head_branch": "main",
                "event": "workflow_dispatch", "path": ".github/workflows/release.yml"}
-        artifacts = {"artifacts": [{"name": "testflight-state", "expired": False},
+        artifacts = {"artifacts": [{"name": "release-state", "expired": False},
                                     {"name": "homebrew-state", "expired": False}]}
         with patch.object(ci, "github", side_effect=[run, artifacts]):
             self.assertEqual(ci.recovery_artifact("123"), "homebrew-state")
         artifacts["artifacts"][1]["expired"] = True
         with patch.object(ci, "github", side_effect=[run, artifacts]):
-            self.assertEqual(ci.recovery_artifact("123"), "testflight-state")
+            self.assertEqual(ci.recovery_artifact("123"), "release-state")
         for key, value in (("head_branch", "feature"), ("event", "pull_request"),
                            ("repository", {"full_name": "other/tap"}), ("path", ".github/workflows/other.yml")):
             with patch.object(ci, "github", return_value=dict(run, **{key: value})):
                 with self.assertRaises(ValueError): ci.recovery_artifact("123")
         with patch.object(ci, "github", side_effect=[run, {"artifacts": []}]):
-            with self.assertRaisesRegex(ValueError, "do not repeat"):
+            with self.assertRaisesRegex(ValueError, "new release attempt"):
                 ci.recovery_artifact("123")
         with self.assertRaisesRegex(ValueError, "run ID"):
             ci.recovery_artifact("../escape")
@@ -57,7 +57,7 @@ class InputTests(unittest.TestCase):
         workflow = (Path(__file__).resolve().parents[1] / ".github/workflows/checks.yml").read_text()
         self.assertIn("github.event_name == 'pull_request'", workflow)
         self.assertIn("github.event.pull_request.head.repo.full_name == github.repository", workflow)
-        self.assertIn("SOURCE_SHA: 3fb09246af12ef6a5b7f4d86d5e6e98e73e57fe4", workflow)
+        self.assertIn("SOURCE_SHA: dd26662148d890dccb416c9a499bbc143188c484", workflow)
         self.assertIn("source/scripts/unified_release.py verify", workflow)
         self.assertIn("PositionBarAppTests.UpdateConfigurationTests", workflow)
         self.assertIn('source/scripts/check test-report "$RUNNER_TEMP/updater-tests.log"', workflow)
@@ -76,8 +76,11 @@ class InputTests(unittest.TestCase):
         self.assertIn("runs-on: xcode-27", workflow)
         self.assertIn("cancel-in-progress: false", workflow)
         self.assertIn("inputs.mode == 'release' && github.ref == 'refs/heads/main'", workflow)
-        self.assertLess(workflow.index("name: testflight-state"), workflow.index("name: Sign and notarize"))
-        self.assertNotIn("path: ${{ runner.temp }}/testflight-build", workflow)
+        self.assertLess(workflow.index("name: release-state"), workflow.index("name: Sign and notarize"))
+        self.assertNotIn("TESTFLIGHT_ENABLED", workflow)
+        self.assertNotIn("APP_STORE_CERTIFICATES", workflow)
+        self.assertNotIn("APP_STORE_PROFILE", workflow)
+        self.assertIn("unified_release.py prepare", workflow)
         self.assertIn("name: homebrew-state", workflow)
         self.assertIn('source/scripts/check test-report "$RUNNER_TEMP/updater-tests.log"', workflow)
         self.assertIn('tap/scripts/ci.py tests --report "$RUNNER_TEMP/updater-tests.json"', workflow)

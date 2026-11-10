@@ -27,11 +27,7 @@ def receipt(version="0.1.0", build=1015, source="a" * 40, sha="b" * 64):
         "source": source,
         "version": version,
         "build": build,
-        "testFlight": {
-            "status": cask.ACCEPTED,
-            "build": str(build),
-            "buildID": str(build),
-        },
+        "registryStatus": "succeeded",
         "artifact": {
             "name": name,
             "url": f"https://github.com/PositionBar/homebrew-tap/releases/download/{tag}/{name}",
@@ -66,18 +62,18 @@ def receipt(version="0.1.0", build=1015, source="a" * 40, sha="b" * 64):
 
 
 class ReceiptTests(unittest.TestCase):
-    def test_requires_accepted_testflight_and_exact_build_pair(self):
+    def test_requires_completed_registered_build(self):
         value = receipt()
-        value["testFlight"]["status"] = "upload_started"
+        value["registryStatus"] = "reserved"
         with tempfile.TemporaryDirectory() as temporary:
             path = Path(temporary) / "homebrew.json"
             path.write_text(json.dumps(value))
-            with self.assertRaisesRegex(ValueError, "not accepted"):
+            with self.assertRaisesRegex(ValueError, "not completed"):
                 cask.load_receipt(path)
 
-    def test_rejects_mismatched_testflight_build_and_release_url(self):
+    def test_rejects_invalid_build_and_release_url(self):
         for mutation in (
-            lambda value: value["testFlight"].update(build="1016"),
+            lambda value: value.update(build=0),
             lambda value: value["artifact"].update(
                 url="https://github.com/another/tap/releases/download/tag/PositionBar.zip"
             ),
@@ -101,7 +97,7 @@ class ReceiptTests(unittest.TestCase):
             lambda value: value["githubRelease"].pop("appcast"),
             lambda value: value["githubRelease"].update(appcast=cask.SPARKLE_FEED_URL),
             lambda value: value["githubRelease"].update(tag="positionbar-0.1.0-1016"),
-            lambda value: value["testFlight"].update(buildID="1016"),
+            lambda value: value.pop("registryStatus"),
         )
         for index, mutate in enumerate(mutations):
             with self.subTest(case=index), tempfile.TemporaryDirectory() as temporary:
@@ -176,7 +172,6 @@ class RenderingTests(unittest.TestCase):
             ("artifact", "sparklePublicEDKey", base64.b64encode(b"z" * 32).decode()),
             ("artifact", "sparkleFeedURL", "https://example.com/appcast.xml"),
             ("githubRelease", "appcast", "https://example.com/appcast.xml"),
-            ("testFlight", "buildID", "1016"),
         )
         with tempfile.TemporaryDirectory() as temporary:
             path = Path(temporary) / "record.json"

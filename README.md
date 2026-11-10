@@ -1,99 +1,83 @@
 # PositionBar Homebrew tap
 
-Public release assets and casks for [PositionBar](https://positionbar.com/).
-No installable cask is implied until a real paired release has passed the checks below.
-
-## Unified Actions release
-
-The `Paired PositionBar release` workflow checks out a fixed commit from private
-`sorcererxw/positionbar`. Both channels share that source SHA, marketing version,
-build and global Build ID. TestFlight uses the App Store target without Sparkle;
-Homebrew uses a separately signed, notarized Developer ID app with Sparkle.
-The cask and signed appcast reference the exact same notarized ZIP bytes.
-
-Publication uses only manual `workflow_dispatch`. `mode=verify` is the default and runs
-offline regressions plus both unsigned archives on the standard GitHub-hosted
-`xcode-27` arm64 runner. It does not allocate a global number, sign, notarize,
-upload TestFlight, create a Release or change the cask. The requested source
-commit must already include the paired-release implementation.
-
-For this repository's own PRs, `Tap checks` also verifies fixed reviewed source
-`3fb09246af12ef6a5b7f4d86d5e6e98e73e57fe4` on `xcode-27`. It runs the actual
-Updater suite and both unsigned archives using only the source-read token. Fork
-PRs never receive private source. This PR verification cannot sign or publish and
-does not require merging the new manual workflow into main first. The reference
-SHA is an integration-test input, not a publication version fallback.
-
-`mode=release` is an actual publication. It runs only from tap main after
-verification, with a full `source_sha` matching the observed source main for a
-fresh release. It uploads TestFlight once, saves its accepted checkpoint, then
-builds/signs/notarizes Homebrew, publicly verifies ZIP/feed/notes and updates tap
-main. Upload acceptance does not mean Apple processing or external beta review
-is complete. Do not run a local publisher and Actions publisher concurrently.
-
-## Configuration contract
-
-Repository Secrets, already prepared separately:
-
-- `GH_PAT`: read access to the private source repository.
-- `APP_STORE_CERTIFICATES_P12_BASE64`, `APP_STORE_CERTIFICATES_PASSWORD`.
-- `APP_STORE_PROFILE_BASE64`, `APP_STORE_API_PRIVATE_KEY`.
-- `DEVELOPER_ID_CERTIFICATE_P12_BASE64`, `DEVELOPER_ID_CERTIFICATE_PASSWORD`.
-- `SPARKLE_PRIVATE_KEY`: the existing key matching the reviewed source catalog public key.
-
-Repository Variables:
-
-- `APP_STORE_API_KEY_ID`.
-- `APP_STORE_API_ISSUER_ID`.
-
-Tap writes use the workflow's short-lived `GITHUB_TOKEN`, not the source-read
-PAT. No extra persistent credential is generated. Temporary signing keychains
-are removed and search lists restored. Secrets are scoped to signing steps and
-stripped from compiler children. No credential, private source, build log,
-TestFlight pkg or dSYM is included in recovery artifacts. Configuration names
-existing in Settings do not prove signing, ASC, notarization or PAT functionality.
-
-The app embeds this stable signed feed URL:
-`https://github.com/PositionBar/homebrew-tap/releases/latest/download/appcast.xml`.
-New Release assets are publicly read back before that release becomes latest.
-An older retry cannot replace a newer latest build. The cask declares
-`auto_updates true` and retains signed Sparkle update checks.
-
-## Recover without a second TestFlight upload
-
-Dispatch `mode=release` again with the original `source_sha` and `resume_run_id`.
-The workflow verifies the original run belongs to tap main and this workflow,
-then restores `homebrew-state` or `testflight-state`. Both are retained for 30
-days. A source main advance does not change the restored release identity.
-
-An accepted TestFlight receipt and original build snapshot are mandatory.
-Uncertain/unaccepted uploads stop for App Store Connect reconciliation; they
-are never treated as accepted. The job's ordinary Re-run button without a
-checkpoint stops before another allocation/upload.
-
-Homebrew reuses and reverifies the exact retained ZIP, or downloads its original
-public URL and checks the saved SHA-256/length. If the exact unpublished bytes
-are missing, it stops rather than rebuilding a replacement under the same
-version. Immutable uploaded assets and release records cannot be substituted.
-A lost upload/push response is reconciled before retry, without force-push.
-
-## Cask verification and offline tests
+Public automation and release assets for PositionBar's notarized direct distribution.
+An installable cask exists only after a real signed release has passed verification.
+TestFlight is not part of the current publication path.
 
 ```sh
-python3 -B scripts/cask.py check --receipt /absolute/path/to/homebrew.json
-python3 -B scripts/cask.py publish --receipt /absolute/path/to/homebrew.json
+brew install --cask positionbar/tap/positionbar
+```
+
+The website links to this repository's [Releases](https://github.com/PositionBar/homebrew-tap/releases).
+The same immutable ZIP is used by downloads, Sparkle and the cask.
+
+## Manual workflow
+
+`PositionBar direct release` (`.github/workflows/release.yml`) runs on GitHub-hosted
+`xcode-27` runners. It never publishes on push or a pull request.
+
+- `source_sha`: full application commit from the private `sorcererxw/positionbar` repository.
+- `mode`: `verify` by default; `release` explicitly signs, notarizes and publishes.
+- `resume_run_id`: optional earlier direct-release run from this tap's main workflow.
+
+Fresh publication requires both this workflow and application source to be on main.
+Verification checks the pinned source, locked dependencies, offline regressions,
+executed Updater XCTest cases and one unsigned direct-distribution archive. It
+allocates no global Build ID and uses no signing or publication credentials.
+The PR check pins the exact reviewed source in `checks.yml`; update that SHA
+alongside source changes before treating cloud verification as current evidence.
+
+Actual release reserves a new global Build ID with variant `developer-id-release`,
+keeps Team `TX6HZR5RB7` / Bundle ID `com.positionbar.app`, signs with Developer ID
+Application and hardened runtime, notarizes, staples, and verifies Gatekeeper.
+The receipt fixes source, version, Build ID, ZIP SHA-256/length, architectures,
+entitlements, Apple identity and Sparkle feed/key. No TestFlight receipt is required.
+The cask publisher downloads the public bytes and verifies those facts again.
+
+Sparkle's signed canonical feed is:
+`https://github.com/PositionBar/homebrew-tap/releases/latest/download/appcast.xml`.
+Assets are immutable; missing assets can be added, existing bytes cannot change.
+Latest promotion and cask updates refuse to roll back a newer Build ID.
+
+## Existing repository credentials
+
+| Input | Purpose |
+| --- | --- |
+| Secret `GH_PAT` | Read the fixed private source; checkout does not retain it |
+| Secret `DEVELOPER_ID_CERTIFICATE_P12_BASE64` | Existing Developer ID certificate and private key on an ephemeral signing keychain |
+| Secret `DEVELOPER_ID_CERTIFICATE_PASSWORD` | Unlock that P12 |
+| Secret `APP_STORE_API_PRIVATE_KEY` | Existing Apple API P8, used by notarytool |
+| Variables `APP_STORE_API_KEY_ID`, `APP_STORE_API_ISSUER_ID` | Identify that notarization API key |
+| Secret `SPARKLE_PRIVATE_KEY` | Sign the ZIP, appcast and release notes with the existing key |
+| Automatic `github.token` | Public release assets, retained artifacts and cask push |
+
+App Store application/installer certificates and provisioning profiles are not
+read by this workflow. Existing stored credentials need not be deleted. Secret
+presence does not prove signing, notarization or push permissions work. The local
+TestFlight scheduler must be stopped before enabling this workflow as the writer.
+
+## Recovery
+
+`release-state` saves identity before signing. `homebrew-state` saves only the
+identity, non-secret receipt, exact notarized ZIP and signed appcast/notes for 30
+days. No private source, signing material, Keychain, intermediate archive, dSYM,
+package cache or build log is uploaded to this public repository.
+
+Dispatch again with the original source SHA and `resume_run_id`. Recovery accepts
+only this tap's main direct-release workflow. A checkpoint without a verified ZIP
+cannot continue compiling: start a new attempt and get a new Build ID. Once ZIP
+facts are saved, restore the exact bytes or retrieve the original URL; never
+rebuild a replacement under the old identity. A job rerun with missing state
+fails closed. Legacy TestFlight checkpoints are not accepted.
+
+`python3 -B scripts/cask.py publish --receipt /absolute/homebrew.json` is a dry run.
+`--execute` explicitly verifies the download and writes/pushes the cask plus its
+immutable release record. Git responses are read back; retries preserve their own
+staged candidate or local commit, never force-push.
+
+```sh
 python3 -B -m unittest discover -s tests -v
 ```
 
-`publish` is dry-run unless `--execute` is supplied. Execution downloads the
-exact public ZIP, verifies identity, architecture, Developer ID, notarization,
-Gatekeeper, entitlements and Sparkle feed/key, styles the cask, then commits only
-`Casks/positionbar.rb` and its immutable `Releases/positionbar-<version>-<build>.json`
-record. It verifies remote main after push and can reuse its own interrupted
-local candidate/commit. Machine-readable results use `--result`; logs stay on
-stderr.
-
-Offline tests mock Apple and public network boundaries. Passing them, YAML/bash
-syntax validation, or unsigned archives does not establish hosted signing,
-notarization, upload acceptance, a public Release, `brew audit`/`brew install`, or
-cross-machine update behavior. Those remain separate operational acceptance.
+These tests are offline and use synthetic repositories. Their success does not
+prove Apple notarization, public availability, installation or native interaction.

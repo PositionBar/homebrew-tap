@@ -1,4 +1,4 @@
-name: Paired PositionBar release
+name: PositionBar direct release
 on:
   workflow_dispatch:
     inputs:
@@ -7,13 +7,13 @@ on:
         required: true
         type: string
       mode:
-        description: Verify only, or explicitly publish both distributions
+        description: Verify only, or explicitly publish the notarized direct distribution
         required: true
         default: verify
         type: choice
         options: [verify, release]
       resume_run_id:
-        description: Earlier paired-release run ID, only for restoring its exact accepted TestFlight checkpoint
+        description: Earlier direct-release run ID, only for restoring its original identity and verified ZIP
         required: false
         default: ''
         type: string
@@ -21,7 +21,7 @@ permissions:
   contents: read
 # All fresh and recovery runs share one writer. Never cancel an active upload.
 concurrency:
-  group: positionbar-paired-release
+  group: positionbar-direct-release
   cancel-in-progress: false
 defaults:
   run:
@@ -70,7 +70,7 @@ jobs:
           xcodebuild -resolvePackageDependencies -project source/apps/macos/PositionBar.xcodeproj \
             -scheme PositionBar -clonedSourcePackagesDirPath "$RUNNER_TEMP/SourcePackages" \
             -onlyUsePackageVersionsFromResolvedFile > "$RUNNER_TEMP/package-resolution.log" 2>&1
-      - name: Offline regressions and both unsigned distribution archives
+      - name: Offline regressions and the unsigned direct-distribution archive
         env:
           SOURCE_SHA: ${{ steps.source.outputs.sha }}
         run: |
@@ -86,7 +86,7 @@ jobs:
           python3 -B tap/scripts/ci.py tests --report "$RUNNER_TEMP/updater-tests.json"
           python3 -B source/scripts/unified_release.py verify --source "$SOURCE_SHA" \
             --work "$RUNNER_TEMP/unsigned-verification" > "$RUNNER_TEMP/unsigned-archives.log" 2>&1
-          echo 'Offline checks and both unsigned archives passed. Signing, notarization and uploads have not run.' >> "$GITHUB_STEP_SUMMARY"
+          echo 'Offline checks and the unsigned archive passed. Signing, notarization and uploads have not run.' >> "$GITHUB_STEP_SUMMARY"
 
   release:
     needs: verify
@@ -97,7 +97,6 @@ jobs:
       contents: write
       actions: read
     env:
-      TESTFLIGHT_ENABLED: 'true'
       SOURCE_SHA: ${{ needs.verify.outputs.source_sha }}
       APP_STORE_API_KEY_ID: ${{ vars.APP_STORE_API_KEY_ID }}
       APP_STORE_API_ISSUER_ID: ${{ vars.APP_STORE_API_ISSUER_ID }}
@@ -149,27 +148,19 @@ jobs:
           run-id: ${{ inputs.resume_run_id }}
           github-token: ${{ github.token }}
           path: ${{ runner.temp }}/release-state
-      - name: Sign, validate and upload TestFlight, or verify its accepted checkpoint
+      - name: Reserve the direct-release identity or validate its recovery checkpoint
         env:
-          APP_STORE_CERTIFICATES_P12_BASE64: ${{ secrets.APP_STORE_CERTIFICATES_P12_BASE64 }}
-          APP_STORE_CERTIFICATES_PASSWORD: ${{ secrets.APP_STORE_CERTIFICATES_PASSWORD }}
-          APP_STORE_PROFILE_BASE64: ${{ secrets.APP_STORE_PROFILE_BASE64 }}
-          APP_STORE_API_PRIVATE_KEY: ${{ secrets.APP_STORE_API_PRIVATE_KEY }}
           RESUME_RUN_ID: ${{ inputs.resume_run_id }}
         run: |
           args=()
           if [[ -n "$RESUME_RUN_ID" ]]; then args+=(--resume); fi
-          if ! python3 -B source/scripts/unified_release.py testflight --source "$SOURCE_SHA" \
-            --state "$RUNNER_TEMP/release-state" --work "$RUNNER_TEMP/testflight-build" "${args[@]}" \
-            > "$RUNNER_TEMP/testflight.log" 2>&1; then
-            grep '^Paired release failed:' "$RUNNER_TEMP/testflight.log" | tail -1 || true
-            exit 1
-          fi
-      - name: Preserve TestFlight result before Homebrew starts
+          python3 -B source/scripts/unified_release.py prepare --source "$SOURCE_SHA" \
+            --state "$RUNNER_TEMP/release-state" "${args[@]}"
+      - name: Preserve identity before signing starts
         if: always()
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
         with:
-          name: testflight-state
+          name: release-state
           path: ${{ runner.temp }}/release-state
           retention-days: 30
           if-no-files-found: warn
@@ -186,7 +177,7 @@ jobs:
           if ! python3 -B source/scripts/unified_release.py homebrew --source "$SOURCE_SHA" \
             --state "$RUNNER_TEMP/release-state" --tap "$GITHUB_WORKSPACE/tap" \
             > "$RUNNER_TEMP/homebrew.log" 2>&1; then
-            grep '^Paired release failed:' "$RUNNER_TEMP/homebrew.log" | tail -1 || true
+            grep '^Direct release failed:' "$RUNNER_TEMP/homebrew.log" | tail -1 || true
             exit 1
           fi
       - name: Preserve exact Homebrew recovery bytes and non-secret receipts
@@ -195,14 +186,14 @@ jobs:
         with:
           name: homebrew-state
           path: |
-            ${{ runner.temp }}/release-state/testflight
+            ${{ runner.temp }}/release-state/release
             ${{ runner.temp }}/release-state/homebrew/homebrew.json
             ${{ runner.temp }}/release-state/homebrew/PositionBar-*.zip
             ${{ runner.temp }}/release-state/homebrew/PositionBar-*.txt
             ${{ runner.temp }}/release-state/homebrew/appcast.xml
           retention-days: 30
           if-no-files-found: warn
-      - name: Report exact paired result
+      - name: Report exact direct-distribution result
         run: |
           python3 - "$RUNNER_TEMP/release-state/homebrew/homebrew.json" >> "$GITHUB_STEP_SUMMARY" <<'PY'
           import json, sys
@@ -211,5 +202,4 @@ jobs:
           print(f"Published source {receipt['source']}, version {receipt['version']}, Build ID {receipt['build']}.")
           print(receipt['artifact']['url'])
           print(receipt['githubRelease']['appcast'])
-          print('TestFlight upload was accepted; Apple processing and external beta review remain separate.')
           PY

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Verify a paired PositionBar cask release and publish its cask locally."""
+"""Verify a notarized PositionBar release and publish its Homebrew cask."""
 
 import argparse
 import base64
@@ -20,7 +20,6 @@ import urllib.request
 ROOT = Path(__file__).resolve().parents[1]
 CASK = ROOT / "Casks/positionbar.rb"
 RELEASES = ROOT / "Releases"
-ACCEPTED = "upload_accepted_processing_pending"
 SPARKLE_FEED_URL = "https://github.com/PositionBar/homebrew-tap/releases/latest/download/appcast.xml"
 
 
@@ -61,10 +60,7 @@ def load_receipt(path):
     build = receipt.get("build")
     require(re.fullmatch(r"[0-9]+\.[0-9]+\.[0-9]+", version), "Invalid marketing version")
     require(type(build) is int and build > 0, "Invalid cask build")
-    testflight = receipt.get("testFlight", {})
-    require(testflight.get("status") == ACCEPTED, "TestFlight has not accepted this build")
-    require(testflight.get("build") == str(build), "TestFlight build differs from cask build")
-    require(str(testflight.get("buildID")) == str(build), "TestFlight and cask build IDs differ")
+    require(receipt.get("registryStatus") == "succeeded", "Global build has not completed")
     artifact = receipt.get("artifact")
     require(isinstance(artifact, dict), "Cask artifact receipt is missing")
     for key in (
@@ -278,7 +274,7 @@ def release_record(receipt):
         "source": receipt["source"],
         "version": receipt["version"],
         "build": receipt["build"],
-        "testFlight": receipt["testFlight"],
+        "registryStatus": receipt["registryStatus"],
         "artifact": artifact,
         "githubRelease": receipt["githubRelease"],
         "tapRepository": "PositionBar/homebrew-tap",
@@ -340,7 +336,7 @@ def write_record(path, record):
             "Existing release record artifact differs",
         )
         require(current.get("githubRelease") == record["githubRelease"], "Existing release record appcast differs")
-        require(current.get("testFlight") == record["testFlight"], "Existing release record TestFlight identity differs")
+        require(current.get("registryStatus") == record["registryStatus"], "Existing release record build status differs")
         if path.read_text() == encoded:
             return False
     path.parent.mkdir(parents=True, exist_ok=True)
