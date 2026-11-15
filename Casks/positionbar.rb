@@ -1,8 +1,8 @@
 cask "positionbar" do
-  version "0.5.0"
-  sha256 "96844d188dba6ea01f997e9fee7ae5e14790cf1dcd485e612db40eb511139a32"
+  version "0.5.1"
+  sha256 "3daa93b59ad05ded21dbc5a4bc46d90a678480f4263729f94d2c8fabe922ed33"
 
-  url "https://github.com/PositionBar/releases/releases/download/positionbar-0.5.0-1235/PositionBar-0.5.0-1235.dmg"
+  url "https://github.com/PositionBar/releases/releases/download/positionbar-0.5.1-1252/PositionBar-0.5.1-1252.dmg"
   name "PositionBar"
   desc "Read-only multi-account position monitor"
   homepage "https://positionbar.com/"
