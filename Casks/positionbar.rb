@@ -4,7 +4,7 @@ cask "positionbar" do
 
   url "https://github.com/PositionBar/releases/releases/download/positionbar-0.6.0-1394/PositionBar-0.6.0-1394.dmg"
   name "PositionBar"
-  desc "Read-only multi-account position monitor"
+  desc "Portfolio tracker for the macOS menu bar"
   homepage "https://positionbar.com/"
 
   auto_updates true
