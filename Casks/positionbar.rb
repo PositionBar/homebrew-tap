@@ -1,8 +1,8 @@
 cask "positionbar" do
-  version "0.6.4"
-  sha256 "4649be3425c5c989ead725c50217b326a236c59b10029b3303d3382e40f744d8"
+  version "0.7.0"
+  sha256 "b012457e5f90df6fe78224cce48733477e5d8c529dae2117b36be384950d5feb"
 
-  url "https://github.com/PositionBar/releases/releases/download/positionbar-0.6.4-1574/PositionBar-0.6.4-1574.dmg"
+  url "https://github.com/PositionBar/releases/releases/download/positionbar-0.7.0-1606/PositionBar-0.7.0-1606.dmg"
   name "PositionBar"
   desc "Portfolio tracker for the macOS menu bar"
   homepage "https://positionbar.com/"
